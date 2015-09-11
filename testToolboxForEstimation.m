@@ -115,7 +115,8 @@ while getEntropy == false && loopCounter <=50
     % define and solve optimization program
     LP = optProgram;
     LP.setConfig(start_time, end_time);
-    LP.setConstraints(net, default_para.e_max);
+    errors.e_default = 0.1;
+    LP.setConstraints(net, errors);
     
     %===============================================================
     % Add objective functions

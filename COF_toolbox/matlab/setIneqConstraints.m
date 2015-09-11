@@ -25,8 +25,10 @@ classdef setIneqConstraints
         
         % num of internal conditions; internal condition is defined by two
         % points in the time space domain with a velocity and rate of
-        % passing, collected by probe vehicles. Let us call this more
-        % explicitely in this code as trajectory conditions from now on.
+        % passing, collected by probe vehicles with the same id. 
+        % Let us call this more explicitely in this code as trajectory 
+        % conditions from now on. For each internal condition, we need two
+        % variables, the vehicle id L and the passing rate r.
         num_internal_con;  
         
         % Density conditions is defined by two points on a vertical line,
@@ -57,10 +59,15 @@ classdef setIneqConstraints
         qin_meas;
         qout_meas;
         
+        % Those are relative errors in [0,1]
+        % q_meas(1-e_his) < q < q_meas(1+e_his)
         e_max;  % error 
+        
         e_his;  % error for historical data
         e_est;  % error for the estimated density condition
-        e_meas; % error of the measurement
+        e_meas_flow; % error of the measurement of boundary flows
+        e_meas_traj_r;  % error of the trajectory passing rate
+        e_meas_dens;    % error of the density condition value
         
         
         %=========================================================
@@ -117,16 +124,15 @@ classdef setIneqConstraints
         %       T_out: column vector, float, downstream time grid
         %       ini_segments: column vector, float, cumulative space grid
         %       rho_ini: column vector, float, initial density 
-        %       e_his: error for historical data
-        %       e_est: error for the estimated density condition
-        %       e_meas: error of the measurement
+        %       error: struct, must have a field e_default
+        %              other fields corresponding to each property
         function self = setIneqConstraints(...
                 v, w, k_c, k_m, postm,...
                 start_time, now_time, end_time,...
                 qin_meas, qout_meas,...
                 T_in, T_out,...
                 ini_segments, rho_ini,...
-                e_his, e_est, e_meas)            
+                errors)            
             
             self.num_us_con = size(qin_meas,1);   % boundary conditions
             self.num_ds_con = size(qout_meas,1);
@@ -144,12 +150,33 @@ classdef setIneqConstraints
             self.now_time = now_time;
             self.end_time = end_time;
             
-            self.e_max = e_meas;
-            self.e_his = e_his;
-            self.e_est = e_est;
-            self.e_meas = e_meas;
-            
-            
+            % set the errors
+            if isfield(errors, 'e_his')
+                self.e_his = errors.e_his;
+            else
+                self.e_his = errors.e_default;
+            end
+            if isfield(errors, 'e_est')
+                self.e_est = errors.e_est;
+            else
+                self.e_est = errors.e_default;
+            end
+            if isfield(errors, 'e_meas_flow')
+                self.e_meas_flow = errors.e_meas_flow;
+            else
+                self.e_meas_flow = errors.e_default;
+            end
+            if isfield(errors, 'e_meas_traj_r')
+                self.e_meas_traj_r = errors.e_meas_traj_r;
+            else
+                self.e_meas_traj_r = errors.e_default;
+            end
+            if isfield(errors, 'e_meas_dens')
+                self.e_meas_dens = errors.e_meas_dens;
+            else
+                self.e_meas_dens = errors.e_default;
+            end
+                
             self.us_pos_m = 0;  % relative postm for each link
             self.ds_pos_m = postm;
             
@@ -185,7 +212,7 @@ classdef setIneqConstraints
             self.X_grid_cum = ini_segments;
             
             if (length(ini_segments)~=length(rho_ini)+1 && ~isempty(rho_ini))
-                error('Check ini_segments and rho_ini dimensions');
+                errors('Check ini_segments and rho_ini dimensions');
             end
             
             self.X_grid = self.X_grid_cum(2:end) - self.X_grid_cum(1:end-1);
@@ -408,6 +435,7 @@ classdef setIneqConstraints
             
         end
         
+        
         %==========================================================================
         % Equation that gives explicit vehicle id at (t,x) by the nth downstream condition
         % input:
@@ -441,6 +469,7 @@ classdef setIneqConstraints
                 return
             end
         end
+        
         
         %==========================================================================
         % Equation that gives explicit vehicle id at (t,x) by the mth
@@ -485,6 +514,7 @@ classdef setIneqConstraints
             end
         end
         
+        
         %==========================================================================
         % Equation that gives explicit vehicle id at (t,x) by the bth
         %   initial condition, when the p<pc
@@ -518,6 +548,7 @@ classdef setIneqConstraints
                 return
             end
         end
+        
         
         %==========================================================================
         % Equation that gives explicit vehicle id at (t,x) by the bth
@@ -633,9 +664,6 @@ classdef setIneqConstraints
             
         end
         
-        
-        
-      
         
         %==========================================================================
         %Function to create the model constraints
@@ -1648,6 +1676,7 @@ classdef setIneqConstraints
             
         end
         
+        
         %==========================================================================
         %Function to create the data constraints
         % output: the data constraints matrix
@@ -1665,7 +1694,9 @@ classdef setIneqConstraints
                     if ~isnan(self.qin_meas(n))
                         array = zeros(1,self.size_row);
                         array(1,n) = 1;
-                        array(1,self.size_row) = self.qin_meas(n)*(1-self.e_max);
+                        err = (self.T_us_cum(n+1)<= self.now_time)*self.e_meas_flow +...
+                              (self.T_us_cum(n+1)> self.now_time)*self.e_his;
+                        array(1,self.size_row) = self.qin_meas(n)*(1-err);
                         
                         rows = rows+1;
                         list2(rows,:)=array;
@@ -1676,7 +1707,9 @@ classdef setIneqConstraints
                     if ~isnan(self.qin_meas(n))
                     array = zeros(1,self.size_row);
                     array(1,n) = -1;
-                    array(1,self.size_row) = -self.qin_meas(n)*(1+self.e_max);
+                    err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
+                              (self.T_us_cum(n+1)> self.now_time)*self.e_his;
+                    array(1,self.size_row) = -self.qin_meas(n)*(1+err);
                     rows = rows+1;
                     list2(rows,:)=array;
                     end
@@ -1691,7 +1724,9 @@ classdef setIneqConstraints
                     if ~isnan(self.qout_meas(n))
                     array = zeros(1,self.size_row);
                     array(1,self.num_us_con + n) = 1;
-                    array(1,self.size_row) = self.qout_meas(n)*(1-self.e_max);
+                    err = (si.T_us_cum(n+1)<=si.now_time)*self.e_meas_flow +...
+                              (si.T_us_cum(n+1) > si.now_time)*self.e_his;
+                    array(1,self.size_row) = self.qout_meas(n)*(1-err);
                     rows = rows+1;
                     list2(rows,:)=array;
                     end
@@ -1701,7 +1736,9 @@ classdef setIneqConstraints
                     if ~isnan(self.qout_meas(n))
                     array = zeros(1,self.size_row);
                     array(1,self.num_ds_con + n) = -1;
-                    array(1,self.size_row) = -self.qout_meas(n)*(1+self.e_max);
+                    err = (si.T_us_cum(n+1)<=si.now_time)*self.e_meas_flow +...
+                              (si.T_us_cum(n+1)> si.now_time)*self.e_his;
+                    array(1,self.size_row) = -self.qout_meas(n)*(1+err);
                     rows = rows+1;
                     list2(rows,:)=array;
                     end
@@ -1716,7 +1753,7 @@ classdef setIneqConstraints
                     if ~isnan(self.rho_ini(n))
                         array = zeros(1,self.size_row);
                         array(1,self.num_us_con + self.num_ds_con + n) = 1;
-                        array(1,self.size_row) = self.rho_ini(n)*(1-self.e_max);
+                        array(1,self.size_row) = self.rho_ini(n)*(1-self.e_est);
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1726,21 +1763,24 @@ classdef setIneqConstraints
                     if ~isnan(self.rho_ini(n))
                         array = zeros(1,self.size_row);
                         array(1,self.num_us_con + self.num_ds_con + n) = -1;
-                        array(1,self.size_row) = -self.rho_ini(n)*(1+self.e_max);
+                        array(1,self.size_row) = -self.rho_ini(n)*(1+self.e_est);
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
                 end
             end
             
+            % The relative lable of the vehicle may not be know, but we can
+            % roughly know the passing rate, set here.
             % internal data constraints for rate of change r
             if(~isempty(self.r_meas_traj))
                 
                 for m = 1:self.num_internal_con
                     if ~isnan(self.r_meas_traj(m))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + self.num_internal_con + m) = 1;
-                        array(1,self.size_row) = self.r_meas_traj(m);
+                        array(1,self.num_us_con + self.num_ds_con +...
+                            self.num_initial_con + self.num_internal_con + m) = 1;
+                        array(1,self.size_row) = self.r_meas_traj(m)*(1-self.e_meas_traj_r);
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1749,8 +1789,9 @@ classdef setIneqConstraints
                 for m = 1:self.num_internal_con
                     if ~isnan(self.r_meas_traj(m))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + self.num_internal_con + m) = -1;
-                        array(1,self.size_row) = - self.r_meas_traj(m);
+                        array(1,self.num_us_con + self.num_ds_con +...
+                            self.num_initial_con + self.num_internal_con + m) = -1;
+                        array(1,self.size_row) = - self.r_meas_traj(m)*(1+self.e_meas_traj_r);
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1766,7 +1807,7 @@ classdef setIneqConstraints
                         array = zeros(1,self.size_row);
                         array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + ...
                                 self.num_density_con + u) = 1;
-                        array(1,self.size_row) = self.dens_meas(u)*(1-self.e_max);
+                        array(1,self.size_row) = self.dens_meas(u)*(1-self.e_meas_dens);
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1777,7 +1818,7 @@ classdef setIneqConstraints
                         array = zeros(1,self.size_row);
                         array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + ...
                                 self.num_density_con + u) = -1;
-                        array(1,self.size_row) = -self.dens_meas(u)*(1+self.e_max);
+                        array(1,self.size_row) = -self.dens_meas(u)*(1+self.e_meas_dens);
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1785,12 +1826,13 @@ classdef setIneqConstraints
                 
             end
             
-            
             % truncate matrix
             list2 = list2(1:rows,:);
             
             
         end
+        
+        
         
         %==========================================================================
         %Function to create the MILP constraints

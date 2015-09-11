@@ -18,6 +18,7 @@ Details:
 7. Added utility functions such as groupSameElement to class.
 8. Debugged the current control toolbox is working for estimation.
 9. Changed the variable names in setIneqConstraints to more intuitive names.
+10. 
 
 
 Todo:
@@ -29,6 +30,8 @@ Todo:
 - auto logging with time stamps
 - unit conversion. Easier to read the density and flow.
 - In find slope functions, if the interval is too small, the functions just return NaN which will introduce an error. Fix by computing an approximated slope.
+- When converting min(s1, s2) to linear constraints by adding bools variables, we used C=500000 which we thought was large enough. Now we used inf directly.
+
 
 
 Goal today:
