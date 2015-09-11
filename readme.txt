@@ -17,7 +17,7 @@ Details:
 6. Added several functions for extracting the traffic density at any time, including searchFuncSlope, searchShocksOnLine, extractDensity.
 7. Added utility functions such as groupSameElement to class.
 8. Debugged the current control toolbox is working for estimation.
-
+9. Changed the variable names in setIneqConstraints to more intuitive names.
 
 
 Todo:

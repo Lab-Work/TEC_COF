@@ -3,14 +3,14 @@
 
 
 %% Path
-clear global path path_data path_profiles path_result;
-global path path_data path_result;
-path = [pwd '/'];   
-path_data = [path 'data/'];    % place to input data
-path_result = [path 'result/'];
-if ~exist(path_result, 'dir')
-    mkdir(path_result);
-end
+% clear global path path_data path_profiles path_result;
+% global path path_data path_result;
+% path = [pwd '/'];   
+% path_data = [path 'data/'];    % place to input data
+% path_result = [path 'result/'];
+% if ~exist(path_result, 'dir')
+%     mkdir(path_result);
+% end
 
 %% default_para
 default_para = struct;

@@ -19,7 +19,6 @@ step_length = 30;   % seconds
 T_BC_data = ones(sim_steps,1)*step_length;
 T_BC_cum = [0; cumsum(T_BC_data)];
 
-
 start_time = 0;
 end_time = sum(T_BC_data);
 
