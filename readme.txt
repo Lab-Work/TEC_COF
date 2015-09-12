@@ -6,6 +6,7 @@ Improvements:
 4. Added junction types onrampjunc, and offrampjunc, where onramp and offramps are controllable.
 4. All array are defined as column vectors. 
 5. Re-name functions and variables to make the code more readable and more precise, such as entropicSolutionAtJunc, sendingFuncAtLink, findBoundaryIntersection.
+6. The original setIneqConstraints was developed in Java where index starts from 0 which is confusing in MATLAB. Modified all indexing in matlab which now starts from 1.
 
 
 Details:
@@ -19,10 +20,10 @@ Details:
 8. Debugged the current control toolbox is working for estimation.
 9. Changed the variable names in setIneqConstraints to more intuitive names.
 10. Added an errors structure which supports different levels of error for each type of measurement.
-
+11. Enabled internal and density conditions
 
 Todo:
-- The code was originally developed in Java in which the index begins with 0. Modified the index for internal and density conditions, and now index starts from 1.
+- More clearly define the internal conditions variable and the density condition variable. The density condition in current version need 2*num_dens_con, not sure why. To investigate.
 - enable internal and density conditions to the framework. The density condition is helpful for setting the objective as minimizing the L1 error.
 - update the dv_index structure.
 - When converting min(s1, s2) to linear constraints by adding bools variables, we used C=500000 which we thought was large enough. Now we used inf directly.
