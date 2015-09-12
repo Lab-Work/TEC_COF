@@ -135,7 +135,7 @@ while getEntropy == false && loopCounter <=50
     %===============================================================
     % Post process the data
     Mos = postSolution(x, net, LP.dv_index, LP.end_time, 2, 2);
-    Mos. estimateState();
+    Mos.estimateState();
     % Mos.plotLinks('all')
     Mos.plotJuncs('all')
     

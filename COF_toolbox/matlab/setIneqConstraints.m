@@ -8,11 +8,14 @@
 % 2. The variable names are changed which makes the code much more
 %   readable. The original code varialble names are defined in agreement
 %   with the equations in paper. 
-% 3. This version has full support for the initial condition, the boundary
-%   condition, the internal condition, the density condition. It also
-%   supports uneven discretization of the time and space.
-% 4. This version supports different levels of error for the value
+% 3. This version supports different levels of error for the value
 %   conditions.
+% 4.This version supports uneven discretization of the time and space.
+
+% Todo:
+% 5. This version has full support for the initial condition, the boundary
+%   condition, the internal condition, the density condition. Those
+%   conditions are interacting. Requries quite some effort to fix.
 
 
 classdef setIneqConstraints
@@ -111,40 +114,43 @@ classdef setIneqConstraints
         
         % This function set the inequality constraints of one link
         % input: 
-        %       v, w, k_c, k_m: road parameters
-        %       postm: length in meters
+        %       para: v, w, k_c, k_m: road parameters; postm: length in meters
         %       start_time, end_time: start and end time of the simulation
         %       now_time: the current time (the timestamp of latest data
         %           mesurement). Data before this will be measurement data;
         %           after this will be historical data.
-        %       qin_meas: column vector, float, upstream measuremnt data
-        %       qout_meas: column vector, float, downstream measuremnt data
-        %       T_in: column vector, float, the upstream time grid, same
-        %           length as qin_meas
-        %       T_out: column vector, float, downstream time grid
-        %       ini_segments: column vector, float, cumulative space grid
-        %       rho_ini: column vector, float, initial density 
+        %       Boundary_con: a struct, with fields
+        %           .BC_us: column vector, float, upstream measuremnt data
+        %           .BC_ds: column vector, float, downstream measuremnt data
+        %           .T_us: column vector, float, the upstream time grid, same
+        %               length as qin_meas
+        %           .T_ds: column vector, float, downstream time grid
+        %       Initial_con: a struct with fields
+        %           .X_grid_cum: column vector, float, cumulative space grid
+        %           .IC: column vector, float, initial density 
+        %       Traj_con: a struct with fields for trajectory condition
+        %       Dens_con: a struct with fields for density condition
         %       error: struct, must have a field e_default
         %              other fields corresponding to each property
         function self = setIneqConstraints(...
-                v, w, k_c, k_m, postm,...
+                para,...
                 start_time, now_time, end_time,...
-                qin_meas, qout_meas,...
-                T_in, T_out,...
-                ini_segments, rho_ini,...
+                Boundary_con,...
+                Initial_con, Traj_con, Dens_con, ...
                 errors)            
             
-            self.num_us_con = size(qin_meas,1);   % boundary conditions
-            self.num_ds_con = size(qout_meas,1);
+            self.num_us_con = size(Boundary_con.BS_us,1);   % boundary conditions
+            self.num_ds_con = size(Boundary_con.BC_ds,1);
             
-            self.num_initial_con = size(rho_ini,1);   % initial conditions
+            self.num_initial_con = size(Initial_con.IC,1);   % initial conditions
             self.num_internal_con = 0;                 % disable internal condition
             self.num_density_con = 0;                 % disable density condition
             
-            self.v = v;
-            self.w = w;
-            self.k_c = k_c;
-            self.k_m = k_m;
+            % set road parameters
+            self.v = para.vf;
+            self.w = para.w;
+            self.k_c = para.k_c;
+            self.k_m = para.k_m;
             
             self.start_time = start_time;
             self.now_time = now_time;
@@ -178,46 +184,56 @@ classdef setIneqConstraints
             end
                 
             self.us_pos_m = 0;  % relative postm for each link
-            self.ds_pos_m = postm;
+            self.ds_pos_m = para.postm;
             
             % if still using uniform discretization
-            self.T_us = T_in;
-            self.T_us_cum = [0; cumsum(T_in)];
-            self.T_ds = T_out;
-            self.T_ds_cum = [0; cumsum(T_out)];
+            self.T_us = Boundary_con.T_us;
+            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
+            self.T_ds = Boundary_con.T_ds;
+            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
             
             % set boundary condition
-            self.qin_meas = qin_meas;
-            self.qout_meas = qout_meas;
+            self.qin_meas = BS_us;
+            self.qout_meas = BC_ds;
             
-            % disable internal condition
-            self.x_min_traj = [];
-            self.x_max_traj = [];
-            self.t_min_traj = [];
-            self.t_max_traj = [];
-            self.v_meas_traj = [];
-            self.r_meas_traj = [];
+            % internal trajectory condition
+            if isempty(Traj_con)
+                % if the trajectory condition struct is empty, then disable
+                % trajectory condition
+                self.x_min_traj = [];
+                self.x_max_traj = [];
+                self.t_min_traj = [];
+                self.t_max_traj = [];
+                self.v_meas_traj = [];
+                self.r_meas_traj = [];
+            else
+                error('ERROR: Internal trajecotry condition not supported.\n')
+            end
             
-            %disable density condition
-            self.x_min_dens = [];
-            self.x_max_dens = [];
-            self.t_dens = [];
-            self.dens_meas = [];
+            % if empty, then disable density condition
+            if isempty(Dens_con)
+                self.x_min_dens = [];
+                self.x_max_dens = [];
+                self.t_dens = [];
+                self.dens_meas = [];
+            else
+                error('ERROR: Density condition not supported.\n')
+            end
             
             
             % set initial condition
-            if ~iscolumn(ini_segments)
-                ini_segments = ini_segments';
+            if ~iscolumn(Initial_con.X_grid_cum)
+                Initial_con.X_grid_cum = Initial_con.X_grid_cum';
             end
-            self.X_grid_cum = ini_segments;
+            self.X_grid_cum = Initial_con.X_grid_cum;
             
-            if (length(ini_segments)~=length(rho_ini)+1 && ~isempty(rho_ini))
+            if (length(Initial_con.X_grid_cum)~=length(Initial_con.IC)+1 && ~isempty(Initial_con.IC))
                 errors('Check ini_segments and rho_ini dimensions');
             end
             
             self.X_grid = self.X_grid_cum(2:end) - self.X_grid_cum(1:end-1);
             
-            if (isempty(rho_ini) || ~all(~isnan(rho_ini)))
+            if (isempty(Initial_con.IC) || ~all(~isnan(Initial_con.IC)))
                 % This is because we have to check each initial condition,
                 % instead of using heauristic knowledge and check only a
                 % few conditins.
@@ -225,17 +241,17 @@ classdef setIneqConstraints
                     'value conditions could increase the computational time!\n'])
             end
             
-            if ~iscolumn(rho_ini)
-                rho_ini = rho_ini';
+            if ~iscolumn(Initial_con.IC)
+                Initial_con.IC = Initial_con.IC';
             end
-            self.rho_ini = rho_ini;
+            self.rho_ini = Initial_con.IC;
             
             % Use heuristic knowledge and group initial conditions into
             % blocks. By theory, only the first or the last in each block
             % need to be checked.
-            if (~isempty(rho_ini))
-                block_ini = double(rho_ini > k_c); 
-                block_ini(isnan(rho_ini)) = NaN;
+            if (~isempty(Initial_con.IC))
+                block_ini = double(Initial_con.IC > self.k_c); 
+                block_ini(isnan(Initial_con.IC)) = NaN;
                 self.indiced_rho_ini = self.groupSameElement(block_ini,inf);
             else
                 self.indiced_rho_ini = [];
@@ -666,9 +682,10 @@ classdef setIneqConstraints
         
         
         %==========================================================================
-        %Function to create the model constraints
-        % output: the model constraints matrix
-        
+        % Function to create the model constraints matrix
+        % Idea: the label at each point must be the smallest solution
+        % output: 
+        %       the model constraints matrix
         function  [list] = setModelMatrix(self)
             
             % first allocate memory for list
@@ -1669,6 +1686,7 @@ classdef setIneqConstraints
                 
             end
             
+            
             % truncate the list matrix to the first rows with
             % inequality information.
             list = list(1:rows,:);
@@ -1678,9 +1696,11 @@ classdef setIneqConstraints
         
         
         %==========================================================================
-        %Function to create the data constraints
-        % output: the data constraints matrix
-        
+        % Function to create the data constraints
+        % The corresponding variable x is constrained by
+        % x_meas(1-e)<=x<=x_mea(1+e)
+        % output: 
+        %       the data constraints matrix
         function [list2] = setDataMatrix(self)
                         
             %Use sparse matrix to speed up computation
@@ -1835,417 +1855,439 @@ classdef setIneqConstraints
         
         
         %==========================================================================
-        %Function to create the MILP constraints
+        % Function to create the MILP constraints associated with internal
+        % trajectory conditions. Each internal trajectory point has a
+        % vehicle id L.
+        % L = min( Mi (all value condition solutions) )
+        % Use binary variables to remove nonliear min function as
+        %   L <= Mi for all i
+        %   inf*bi + L >= Mi for all i
+        %   sum(1-bi) = 1 (one and only one bi = 0)
         % The following functions need to be modified to enable different
         % discretization in up/downstream boundaries.
+        function [list3] = setMatrix3(self)
+            
+            list3 = zeros(0,0);
+            
+            %Binary variables useful counter as a reference
+            countB=0;
+            Cmax = inf; 
+            
+            % nb: number of binary variables per point
+            nb = ceil(log2(2*(self.num_initial_con+1) + ...
+                    (self.num_us_con+1)+ (self.num_ds_con+1) +...
+                    (self.num_internal_con+1)+(self.num_density_con+1)));
+            
+            % comb_mat: combination matrix for possible binary combinations
+            comb_mat = zeros(2^nb,nb);
+            
+            for i = 1:2^nb
+                comb_mat(i,:) = double(dec2bin(i-1,nb)=='1');
+            end
+            
+            % for each internal trajectory condtion, we set min point first
+            % and then max point
+            for k = 1:self.num_internal_con
+                
+                %x_min and t_min point------------------
+                if (k==1 || (self.x_min_traj(k)~=self.x_max_traj(k-1) &&...
+                        self.t_min_traj(k)~=self.t_max_traj(k-1)))
+                    tempM = zeros(0,0);
+                    %Upper bound constraints
+                    %L1<=M1
+                    %L1<=M2
+                    % The internal trajectory condition value Lk
+                    temp_array = self.traj_con(k, self.t_min_traj(k), self.x_min_traj(k));
+                    
+                    % Initial condition solutions Mi
+                    % Lk <= Mi
+                    for block = 1:size(self.indiced_rho_ini,1) 
+                        
+                        if (self.indiced_rho_ini(block,3) == 0)
+                            
+                            for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
+                                %-1 to be consistent with other functions self.mtau...
+                                arraym = self.m_initial_con_ff(b,self.t_min_traj(k), self.x_min_traj(k));
+                                array2 = self.substractArray(arraym,temp_array);
+                                if(~isempty(array2))
+                                    rows = size(list3,1);
+                                    list3(rows+1,:) = array2;
+                                    rows = size(tempM,1);
+                                    tempM(rows+1,:) = arraym;
+                                    break;  % Only need to consider the first one
+                                end
+                            end
+                            
+                        elseif (self.indiced_rho_ini(block,3) == 1)
+                            
+                            for b = self.indiced_rho_ini(block,2)-1:-1:self.indiced_rho_ini(block,1)-1
+                                % For k>k_c case, From the last one
+                                arraym = self.m_initial_con_cf(b,self.t_min_traj(k), self.x_min_traj(k));
+                                array2 = self.substractArray(arraym,temp_array);
+                                if(~isempty(array2))
+                                    rows = size(list3,1);
+                                    list3(rows+1,:) = array2;
+                                    rows = size(tempM,1);
+                                    tempM(rows+1,:) = arraym;
+                                    break;
+                                end
+                            end
+                            
+                        elseif (isnan(self.indiced_rho_ini(block,3)))
+                            
+                            for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
+                                % For undefined initial blocks, check all
+                                arraym = self.m_initial_con_ff(b,self.t_min_traj(k), self.x_min_traj(k));
+                                array2 = self.substractArray(arraym,temp_array);
+                                if(~isempty(array2))
+                                    rows = size(list3,1);
+                                    list3(rows+1,:) = array2;
+                                    rows = size(tempM,1);
+                                    tempM(rows+1,:) = arraym;
+                                end
+                                
+                                arraym = self.m_initial_con_cf(b,self.t_min_traj(k), self.x_min_traj(k));
+                                array2 = self.substractArray(arraym,temp_array);
+                                if(~isempty(array2))
+                                    rows = size(list3,1);
+                                    list3(rows+1,:) = array2;
+                                    rows = size(tempM,1);
+                                    tempM(rows+1,:) = arraym;
+                                end
+                            end
+                            
+                        end
+                    end 
+                    
+                    
+                    
+                    %======================================================
+                    % To be continued here. Sep 11, 2015
+                    %======================================================
+                    
+                    % Downstream condition solutions Mi
+                    % Lk <= Mi
+                    for n=1:self.num_ds_con
+                        
+                        arraym = self.m_ds_con(n,self.t_min_traj(k), self.x_min_traj(k));
+                        array2 = self.substractArray(arraym,temp_array);
+                        if(~isempty(array2) && arraym(1,self.n_max +1 + n+1) ~= self.Tvec(n+1))
+                            % The second condition ensure we only consider
+                            % the solution at the characteristic domain
+                            %Add a constraint
+                            rows = size(list3,1);
+                            list3(rows+1,:) = array2;
+                            %Assign the solution to temporary Matrix
+                            rows = size(tempM,1);
+                            tempM(rows+1,:) = arraym;
+                            break;  %only one
+                        end
+                        
+                    end
+                    
+                    for n=0:self.n_max    % For upstream
+                        
+                        arraym = self.m_us_con(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
+                        array2 = self.substractArray(arraym, temp_array);
+                        if(~isempty(array2) && arraym(1,self.size_row)==0)
+                            %Add a constraint
+                            rows = size(list3,1);
+                            list3(rows+1,:) = array2;
+                            %Assign the solution to temporary Matrix
+                            rows = size(tempM,1);
+                            tempM(rows+1,:) = arraym;
+                            break;
+                        end
+                        
+                    end
+                    
+                    for n=0:self.num_internal_con    % For internal
+                        
+                        if(n~=k)
+                            arraym = self.m_traj_con(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
+                            array2 = self.substractArray(arraym,temp_array);
+                            if(~isempty(array2))
+                                rows = size(list3,1);
+                                list3(rows+1,:) = array2;
+                                rows = size(tempM,1);
+                                tempM(rows+1,:) = arraym;
+                            end
+                        end
+                        
+                    end
+                    
+                    index_u = find(self.t_dens~=self.t0+self.Tcum(self.n_max+2));
+                    for i=1:length(index_u) % For density
+                
+                        n = index_u(i)-1;
+                        
+                        arraym = self.m_dens_con_ff(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
+                        array2 = self.substractArray(arraym,temp_array);
+                        if(~isempty(array2))
+                            rows = size(list3,1);
+                            list3(rows+1,:) = array2;
+                            rows = size(tempM,1);
+                            tempM(rows+1,:) = arraym;
+                        end
+                        
+                        arraym = self.m_dens_con_cf(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
+                        array2 = self.substractArray(arraym,temp_array);
+                        if(~isempty(array2))
+                            rows = size(list3,1);
+                            list3(rows+1,:) = array2;
+                            rows = size(tempM,1);
+                            tempM(rows+1,:) = arraym;
+                        end
+                        
+                    end
+                    
+                    rowsM = size(tempM,1);
+                    
+                    %Define all the possible combinations according to the solutions that apply
+                    %at the specified point
+                    
+                    %Lower bound constraints
+                    %C*b1 +L1>=M1
+                    %C*b1 +L1>=M2
+                    
+                    for i = 1:rowsM
+                        
+                        array = temp_array;
+                        
+                        %Decode the binary combinations
+                        
+                        for counter=1:self.nb_min_traj(k+1)
+                            if comb_mat(i,nb-self.nb_min_traj(k+1)+counter) == 1
+                                array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB+ counter) = -Cmax;
+                                
+                            elseif comb_mat(i,nb-self.nb_min_traj(k+1)+counter) == 0
+                                array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB+ counter) = Cmax;
+                                
+                            end
+                        end
+                        array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
+                        
+                        % Add constraint to the MILP matrix
+                        
+                        array2 = self.substractArray(array,tempM(i,:));
+                        rows = size(list3,1);
+                        list3(rows+1,:) = array2;
+                    end
+                    
+                    %Define the last constraint to bound the binary combination
+                    
+                    array = zeros(1,self.size_row);
+                    
+                    for counter=1:self.nb_min_traj(k+1)
+                        
+                        array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) + 2*(self.num_density_con+1) + countB + counter) = -2^(self.nb_min_traj(k+1)-counter);
+                        
+                    end
+                    
+                    array(1,self.size_row) = -(rowsM-1); %RHS (maximum possible value of the binary comb)
+                    rows = size(list3,1);
+                    list3(rows+1,:) = array;
+                    
+                    countB = countB+self.nb_min_traj(k+1);
+                    
+                end
+                
+                %x_max and t_max point-------------------------
+                
+                tempM = zeros(0,0);
+                
+                %Upper bound constraints
+                %L1<=M1
+                %L1<=M2
+                
+                temp_array = self.traj_con(k, self.t_max_traj(k+1), self.x_max_traj(k+1));
+                
+                for block = 1:size(self.indiced_rho_ini,1) % For initial
+                    
+                    if (self.indiced_rho_ini(block,3) == 0)
+                        
+                        for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
+                            %-1 to be consistent with other functions self.mtau...
+                            arraym = self.m_initial_con_ff(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                            array2 = self.substractArray(arraym,temp_array);
+                            if(~isempty(array2))
+                                rows = size(list3,1);
+                                list3(rows+1,:) = array2;
+                                rows = size(tempM,1);
+                                tempM(rows+1,:) = arraym;
+                                break;  % Only need to consider the first one
+                            end
+                        end
+                        
+                    elseif (self.indiced_rho_ini(block,3) == 1)
+                        
+                        for b = self.indiced_rho_ini(block,2)-1:-1:self.indiced_rho_ini(block,1)-1
+                            % For k>k_c case, From the last one
+                            arraym = self.m_initial_con_cf(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                            array2 = self.substractArray(arraym,temp_array);
+                            if(~isempty(array2))
+                                rows = size(list3,1);
+                                list3(rows+1,:) = array2;
+                                rows = size(tempM,1);
+                                tempM(rows+1,:) = arraym;
+                                break;
+                            end
+                        end
+                        
+                    elseif isnan(self.indiced_rho_ini(block,3))
+                        
+                        for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
+                            % For undefined initial blocks, check all
+                            arraym = self.m_initial_con_ff(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                            array2 = self.substractArray(arraym,temp_array);
+                            if(~isempty(array2))
+                                rows = size(list3,1);
+                                list3(rows+1,:) = array2;
+                                rows = size(tempM,1);
+                                tempM(rows+1,:) = arraym;
+                            end
+                            
+                            arraym = self.m_initial_con_cf(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                            array2 = self.substractArray(arraym,temp_array);
+                            if(~isempty(array2))
+                                rows = size(list3,1);
+                                list3(rows+1,:) = array2;
+                                rows = size(tempM,1);
+                                tempM(rows+1,:) = arraym;
+                            end
+                        end
+                        
+                    end
+                    
+                end
+                
+                for n=0:self.n_max
+                    arraym = self.m_ds_con(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                    array2 = self.substractArray(arraym,temp_array);
+                    if(~isempty(array2) && array(1,self.n_max+1 + n+1) ~= self.Tvec(n+1))
+                        %Add a constraint
+                        rows = size(list3,1);
+                        list3(rows+1,:) = array2;
+                        %Assign the solution to temporary Matrix
+                        rows = size(tempM,1);
+                        tempM(rows+1,:) = arraym;
+                        break;
+                    end
+                end
+                
+                for n=0:self.n_max
+                    arraym = self.m_us_con(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                    array2 = self.substractArray(arraym, temp_array);
+                    if(~isempty(array2)  && arraym(1,self.size_row)==0)
+                        %Add a constraint
+                        rows = size(list3,1);
+                        list3(rows+1,:) = array2;
+                        %Assign the solution to temporary Matrix
+                        rows = size(tempM,1);
+                        tempM(rows+1,:) = arraym;
+                        break;
+                    end
+                    
+                end
+                
+                for n=0:self.num_internal_con
+                    
+                    
+                    if(n~=k)
+                        arraym = self.m_traj_con(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                        array2 = self.substractArray(arraym,temp_array);
+                        if(~isempty(array2))
+                            %Add a constraint
+                            rows = size(list3,1);
+                            list3(rows+1,:) = array2;
+                            %Assign the solution to temporary Matrix
+                            rows = size(tempM,1);
+                            tempM(rows+1,:) = arraym;
+                            
+                        end
+                        
+                    end
+                    
+                    
+                end
+                
+                index_u = find(self.t_dens~=self.t0+self.Tcum(self.n_max+2));
+                for i=1:length(index_u) % For density
+                    
+                    n = index_u(i)-1;
+                    
+                    arraym = self.m_dens_con_ff(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                    array2 = self.substractArray(arraym,temp_array);
+                    if(~isempty(array2))
+                        rows = size(list3,1);
+                        list3(rows+1,:) = array2;
+                        rows = size(tempM,1);
+                        tempM(rows+1,:) = arraym;
+                    end
+                    
+                    arraym = self.m_dens_con_cf(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
+                    array2 = self.substractArray(arraym,temp_array);
+                    if(~isempty(array2))
+                        rows = size(list3,1);
+                        list3(rows+1,:) = array2;
+                        rows = size(tempM,1);
+                        tempM(rows+1,:) = arraym;
+                    end
+                    
+                end
+                
+                rowsM = size(tempM,1);
+                
+                %Define all the possible combinations according to the solutions that apply
+                %at the specified point
+                
+                %Lower bound constraints
+                %C*b1 +L1>=M1
+                %C*b1 +L1>=M2
+                
+                for i = 1:rowsM
+                    
+                    array = temp_array;
+                    
+                    %Decode the binary combinations
+                    for counter=1:self.nb_max_traj(1,k+1)
+                        if comb_mat(i,nb-self.nb_max_traj(1,k+1)+counter) == 1
+                            array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB + counter) = -Cmax;
+                            
+                        elseif comb_mat(i,nb-self.nb_max_traj(1,k+1)+counter) == 0
+                            array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB + counter) = Cmax;
+                            
+                        end
+                    end
+                    array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
+                    
+                    % Add constraint to the matrix constraints
+                    
+                    array2 = self.substractArray(array,tempM(i,:));
+                    rows = size(list3,1);
+                    list3(rows+1,:) = array2;
+                end
+                
+                %Define the last constraint to bound the binary combination
+                
+                array = zeros(1,self.size_row);
+                
+                % Define constraint matrix elements for binary terms
+                for counter=1:self.nb_max_traj(1,k+1)
+                    
+                    array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) + 2*(self.num_density_con+1)+ countB + counter) = -2^(self.nb_max_traj(1,k+1)-counter);
+                    
+                end
+                
+                array(1,self.size_row) = -(rowsM-1); %RHS
+                rows = size(list3,1);
+                list3(rows+1,:) = array;
+                
+                countB = countB + self.nb_max_traj(k+1);
+            end
+
+        end
         
-%         function [list3] = setMatrix3(self)
-%             
-%             list3 = zeros(0,0);
-%             
-%             %Binary variables useful counter as a reference
-%             countB=0;
-%             Cmax = 500000; 
-%             
-%             % nb: number of binary variables per point
-%             nb = ceil(log2(2*(self.num_initial_con+1)+2*(self.n_max+1)+(self.num_internal_con+1)+(self.num_density_con+1)));
-%             
-%             % comb_mat: combination matrix for possible binary combinations
-%             comb_mat = zeros(2^nb,nb);
-%             
-%             for i = 1:2^nb
-%                 comb_mat(i,:) = double(dec2bin(i-1,nb)=='1');
-%             end
-%             
-%             for k = 0:self.num_internal_con
-%                 
-%                 %x_min and t_min point------------------
-%                 if (k==0 || (self.x_min_traj(k+1)~=self.x_max_traj(k) && self.t_min_traj(k+1)~=self.t_max_traj(k)))
-%                     tempM = zeros(0,0);
-%                     %Upper bound constraints
-%                     %L1<=M1
-%                     %L1<=M2
-%                     temp_array = self.traj_con(k, self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                     
-%                     for block = 1:size(self.indiced_rho_ini,1) % For initial
-%                         
-%                         if (self.indiced_rho_ini(block,3) == 0)
-%                             
-%                             for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
-%                                 %-1 to be consistent with other functions self.mtau...
-%                                 arraym = self.m_initial_con_ff(b,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                                 array2 = self.substractArray(arraym,temp_array);
-%                                 if(~isempty(array2))
-%                                     rows = size(list3,1);
-%                                     list3(rows+1,:) = array2;
-%                                     rows = size(tempM,1);
-%                                     tempM(rows+1,:) = arraym;
-%                                     break;  % Only need to consider the first one
-%                                 end
-%                             end
-%                             
-%                         elseif (self.indiced_rho_ini(block,3) == 1)
-%                             
-%                             for b = self.indiced_rho_ini(block,2)-1:-1:self.indiced_rho_ini(block,1)-1
-%                                 % For k>k_c case, From the last one
-%                                 arraym = self.m_initial_con_cf(b,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                                 array2 = self.substractArray(arraym,temp_array);
-%                                 if(~isempty(array2))
-%                                     rows = size(list3,1);
-%                                     list3(rows+1,:) = array2;
-%                                     rows = size(tempM,1);
-%                                     tempM(rows+1,:) = arraym;
-%                                     break;
-%                                 end
-%                             end
-%                             
-%                         elseif (isnan(self.indiced_rho_ini(block,3)))
-%                             
-%                             for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
-%                                 % For undefined initial blocks, check all
-%                                 arraym = self.m_initial_con_ff(b,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                                 array2 = self.substractArray(arraym,temp_array);
-%                                 if(~isempty(array2))
-%                                     rows = size(list3,1);
-%                                     list3(rows+1,:) = array2;
-%                                     rows = size(tempM,1);
-%                                     tempM(rows+1,:) = arraym;
-%                                 end
-%                                 
-%                                 arraym = self.m_initial_con_cf(b,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                                 array2 = self.substractArray(arraym,temp_array);
-%                                 if(~isempty(array2))
-%                                     rows = size(list3,1);
-%                                     list3(rows+1,:) = array2;
-%                                     rows = size(tempM,1);
-%                                     tempM(rows+1,:) = arraym;
-%                                 end
-%                             end
-%                             
-%                         end
-%                     end 
-%                     
-%                     for n=0:self.n_max    % For Downstream
-%                         
-%                         arraym = self.m_ds_con(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                         array2 = self.substractArray(arraym,temp_array);
-%                         if(~isempty(array2) && arraym(1,self.n_max +1 + n+1) ~= self.Tvec(n+1))
-%                             % The second condition ensure we only consider
-%                             % the solution at the characteristic domain
-%                             %Add a constraint
-%                             rows = size(list3,1);
-%                             list3(rows+1,:) = array2;
-%                             %Assign the solution to temporary Matrix
-%                             rows = size(tempM,1);
-%                             tempM(rows+1,:) = arraym;
-%                             break;  %only one
-%                         end
-%                         
-%                     end
-%                     
-%                     for n=0:self.n_max    % For upstream
-%                         
-%                         arraym = self.m_us_con(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                         array2 = self.substractArray(arraym, temp_array);
-%                         if(~isempty(array2) && arraym(1,self.size_row)==0)
-%                             %Add a constraint
-%                             rows = size(list3,1);
-%                             list3(rows+1,:) = array2;
-%                             %Assign the solution to temporary Matrix
-%                             rows = size(tempM,1);
-%                             tempM(rows+1,:) = arraym;
-%                             break;
-%                         end
-%                         
-%                     end
-%                     
-%                     for n=0:self.num_internal_con    % For internal
-%                         
-%                         if(n~=k)
-%                             arraym = self.m_traj_con(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                             array2 = self.substractArray(arraym,temp_array);
-%                             if(~isempty(array2))
-%                                 rows = size(list3,1);
-%                                 list3(rows+1,:) = array2;
-%                                 rows = size(tempM,1);
-%                                 tempM(rows+1,:) = arraym;
-%                             end
-%                         end
-%                         
-%                     end
-%                     
-%                     index_u = find(self.t_dens~=self.t0+self.Tcum(self.n_max+2));
-%                     for i=1:length(index_u) % For density
-%                 
-%                         n = index_u(i)-1;
-%                         
-%                         arraym = self.m_dens_con_ff(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                         array2 = self.substractArray(arraym,temp_array);
-%                         if(~isempty(array2))
-%                             rows = size(list3,1);
-%                             list3(rows+1,:) = array2;
-%                             rows = size(tempM,1);
-%                             tempM(rows+1,:) = arraym;
-%                         end
-%                         
-%                         arraym = self.m_dens_con_cf(n,self.t_min_traj(k+1), self.x_min_traj(k+1));
-%                         array2 = self.substractArray(arraym,temp_array);
-%                         if(~isempty(array2))
-%                             rows = size(list3,1);
-%                             list3(rows+1,:) = array2;
-%                             rows = size(tempM,1);
-%                             tempM(rows+1,:) = arraym;
-%                         end
-%                         
-%                     end
-%                     
-%                     rowsM = size(tempM,1);
-%                     
-%                     %Define all the possible combinations according to the solutions that apply
-%                     %at the specified point
-%                     
-%                     %Lower bound constraints
-%                     %C*b1 +L1>=M1
-%                     %C*b1 +L1>=M2
-%                     
-%                     for i = 1:rowsM
-%                         
-%                         array = temp_array;
-%                         
-%                         %Decode the binary combinations
-%                         
-%                         for counter=1:self.nb_min_traj(k+1)
-%                             if comb_mat(i,nb-self.nb_min_traj(k+1)+counter) == 1
-%                                 array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB+ counter) = -Cmax;
-%                                 
-%                             elseif comb_mat(i,nb-self.nb_min_traj(k+1)+counter) == 0
-%                                 array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB+ counter) = Cmax;
-%                                 
-%                             end
-%                         end
-%                         array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
-%                         
-%                         % Add constraint to the MILP matrix
-%                         
-%                         array2 = self.substractArray(array,tempM(i,:));
-%                         rows = size(list3,1);
-%                         list3(rows+1,:) = array2;
-%                     end
-%                     
-%                     %Define the last constraint to bound the binary combination
-%                     
-%                     array = zeros(1,self.size_row);
-%                     
-%                     for counter=1:self.nb_min_traj(k+1)
-%                         
-%                         array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) + 2*(self.num_density_con+1) + countB + counter) = -2^(self.nb_min_traj(k+1)-counter);
-%                         
-%                     end
-%                     
-%                     array(1,self.size_row) = -(rowsM-1); %RHS (maximum possible value of the binary comb)
-%                     rows = size(list3,1);
-%                     list3(rows+1,:) = array;
-%                     
-%                     countB = countB+self.nb_min_traj(k+1);
-%                     
-%                 end
-%                 
-%                 %x_max and t_max point-------------------------
-%                 
-%                 tempM = zeros(0,0);
-%                 
-%                 %Upper bound constraints
-%                 %L1<=M1
-%                 %L1<=M2
-%                 
-%                 temp_array = self.traj_con(k, self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                 
-%                 for block = 1:size(self.indiced_rho_ini,1) % For initial
-%                     
-%                     if (self.indiced_rho_ini(block,3) == 0)
-%                         
-%                         for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
-%                             %-1 to be consistent with other functions self.mtau...
-%                             arraym = self.m_initial_con_ff(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                             array2 = self.substractArray(arraym,temp_array);
-%                             if(~isempty(array2))
-%                                 rows = size(list3,1);
-%                                 list3(rows+1,:) = array2;
-%                                 rows = size(tempM,1);
-%                                 tempM(rows+1,:) = arraym;
-%                                 break;  % Only need to consider the first one
-%                             end
-%                         end
-%                         
-%                     elseif (self.indiced_rho_ini(block,3) == 1)
-%                         
-%                         for b = self.indiced_rho_ini(block,2)-1:-1:self.indiced_rho_ini(block,1)-1
-%                             % For k>k_c case, From the last one
-%                             arraym = self.m_initial_con_cf(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                             array2 = self.substractArray(arraym,temp_array);
-%                             if(~isempty(array2))
-%                                 rows = size(list3,1);
-%                                 list3(rows+1,:) = array2;
-%                                 rows = size(tempM,1);
-%                                 tempM(rows+1,:) = arraym;
-%                                 break;
-%                             end
-%                         end
-%                         
-%                     elseif isnan(self.indiced_rho_ini(block,3))
-%                         
-%                         for b = self.indiced_rho_ini(block,1)-1:self.indiced_rho_ini(block,2)-1
-%                             % For undefined initial blocks, check all
-%                             arraym = self.m_initial_con_ff(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                             array2 = self.substractArray(arraym,temp_array);
-%                             if(~isempty(array2))
-%                                 rows = size(list3,1);
-%                                 list3(rows+1,:) = array2;
-%                                 rows = size(tempM,1);
-%                                 tempM(rows+1,:) = arraym;
-%                             end
-%                             
-%                             arraym = self.m_initial_con_cf(b,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                             array2 = self.substractArray(arraym,temp_array);
-%                             if(~isempty(array2))
-%                                 rows = size(list3,1);
-%                                 list3(rows+1,:) = array2;
-%                                 rows = size(tempM,1);
-%                                 tempM(rows+1,:) = arraym;
-%                             end
-%                         end
-%                         
-%                     end
-%                     
-%                 end
-%                 
-%                 for n=0:self.n_max
-%                     arraym = self.m_ds_con(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                     array2 = self.substractArray(arraym,temp_array);
-%                     if(~isempty(array2) && array(1,self.n_max+1 + n+1) ~= self.Tvec(n+1))
-%                         %Add a constraint
-%                         rows = size(list3,1);
-%                         list3(rows+1,:) = array2;
-%                         %Assign the solution to temporary Matrix
-%                         rows = size(tempM,1);
-%                         tempM(rows+1,:) = arraym;
-%                         break;
-%                     end
-%                 end
-%                 
-%                 for n=0:self.n_max
-%                     arraym = self.m_us_con(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                     array2 = self.substractArray(arraym, temp_array);
-%                     if(~isempty(array2)  && arraym(1,self.size_row)==0)
-%                         %Add a constraint
-%                         rows = size(list3,1);
-%                         list3(rows+1,:) = array2;
-%                         %Assign the solution to temporary Matrix
-%                         rows = size(tempM,1);
-%                         tempM(rows+1,:) = arraym;
-%                         break;
-%                     end
-%                     
-%                 end
-%                 
-%                 for n=0:self.num_internal_con
-%                     
-%                     
-%                     if(n~=k)
-%                         arraym = self.m_traj_con(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                         array2 = self.substractArray(arraym,temp_array);
-%                         if(~isempty(array2))
-%                             %Add a constraint
-%                             rows = size(list3,1);
-%                             list3(rows+1,:) = array2;
-%                             %Assign the solution to temporary Matrix
-%                             rows = size(tempM,1);
-%                             tempM(rows+1,:) = arraym;
-%                             
-%                         end
-%                         
-%                     end
-%                     
-%                     
-%                 end
-%                 
-%                 index_u = find(self.t_dens~=self.t0+self.Tcum(self.n_max+2));
-%                 for i=1:length(index_u) % For density
-%                     
-%                     n = index_u(i)-1;
-%                     
-%                     arraym = self.m_dens_con_ff(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                     array2 = self.substractArray(arraym,temp_array);
-%                     if(~isempty(array2))
-%                         rows = size(list3,1);
-%                         list3(rows+1,:) = array2;
-%                         rows = size(tempM,1);
-%                         tempM(rows+1,:) = arraym;
-%                     end
-%                     
-%                     arraym = self.m_dens_con_cf(n,self.t_max_traj(k+1), self.x_max_traj(k+1));
-%                     array2 = self.substractArray(arraym,temp_array);
-%                     if(~isempty(array2))
-%                         rows = size(list3,1);
-%                         list3(rows+1,:) = array2;
-%                         rows = size(tempM,1);
-%                         tempM(rows+1,:) = arraym;
-%                     end
-%                     
-%                 end
-%                 
-%                 rowsM = size(tempM,1);
-%                 
-%                 %Define all the possible combinations according to the solutions that apply
-%                 %at the specified point
-%                 
-%                 %Lower bound constraints
-%                 %C*b1 +L1>=M1
-%                 %C*b1 +L1>=M2
-%                 
-%                 for i = 1:rowsM
-%                     
-%                     array = temp_array;
-%                     
-%                     %Decode the binary combinations
-%                     for counter=1:self.nb_max_traj(1,k+1)
-%                         if comb_mat(i,nb-self.nb_max_traj(1,k+1)+counter) == 1
-%                             array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB + counter) = -Cmax;
-%                             
-%                         elseif comb_mat(i,nb-self.nb_max_traj(1,k+1)+counter) == 0
-%                             array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) +2*(self.num_density_con+1)+ countB + counter) = Cmax;
-%                             
-%                         end
-%                     end
-%                     array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
-%                     
-%                     % Add constraint to the matrix constraints
-%                     
-%                     array2 = self.substractArray(array,tempM(i,:));
-%                     rows = size(list3,1);
-%                     list3(rows+1,:) = array2;
-%                 end
-%                 
-%                 %Define the last constraint to bound the binary combination
-%                 
-%                 array = zeros(1,self.size_row);
-%                 
-%                 % Define constraint matrix elements for binary terms
-%                 for counter=1:self.nb_max_traj(1,k+1)
-%                     
-%                     array(1,2*(self.n_max + 1) + self.num_initial_con + 1 +2*(self.num_internal_con+1) + 2*(self.num_density_con+1)+ countB + counter) = -2^(self.nb_max_traj(1,k+1)-counter);
-%                     
-%                 end
-%                 
-%                 array(1,self.size_row) = -(rowsM-1); %RHS
-%                 rows = size(list3,1);
-%                 list3(rows+1,:) = array;
-%                 
-%                 countB = countB + self.nb_max_traj(k+1);
-%             end
-% 
-%         end
-%         
 %         
 %         function [list3] = setMatrix3u(self)
 %             
@@ -3101,6 +3143,7 @@ classdef setIneqConstraints
       
         end
         
+
         
         %==========================================================================
         % Method to substract to arrays with a "null" condition
@@ -3111,6 +3154,7 @@ classdef setIneqConstraints
                 output = []; %return "null"
             end
         end
+        
         
         
         %===============================================================

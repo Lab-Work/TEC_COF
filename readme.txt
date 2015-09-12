@@ -18,23 +18,28 @@ Details:
 7. Added utility functions such as groupSameElement to class.
 8. Debugged the current control toolbox is working for estimation.
 9. Changed the variable names in setIneqConstraints to more intuitive names.
-10. 
+10. Added an errors structure which supports different levels of error for each type of measurement.
 
 
 Todo:
-- properly define a meaningful control objective.
-- enable internal conditions to the framework; change the variable names in the code
-- enable density conditions to the framework; change the variable names in the code
-- Offramp actuator not defined yet.
+- The code was originally developed in Java in which the index begins with 0. Modified the index for internal and density conditions, and now index starts from 1.
+- enable internal and density conditions to the framework. The density condition is helpful for setting the objective as minimizing the L1 error.
+- update the dv_index structure.
+- When converting min(s1, s2) to linear constraints by adding bools variables, we used C=500000 which we thought was large enough. Now we used inf directly.
 - investigate AIMSUN ramp metering scheme and define the signal format.
 - auto logging with time stamps
 - unit conversion. Easier to read the density and flow.
+
+
+Issues:
+- We have not defined an offramp actuator yet. We use a green red cycle ramp meter for onramp control.
+- Need to properly define a meaningful control objective.
 - In find slope functions, if the interval is too small, the functions just return NaN which will introduce an error. Fix by computing an approximated slope.
-- When converting min(s1, s2) to linear constraints by adding bools variables, we used C=500000 which we thought was large enough. Now we used inf directly.
 
 
 
-Goal today:
+
+Goal:
 2. add density and internal conditions
 3. Write a python script for to test if the toolbox works for control
 4. Remote back and work on the API.
