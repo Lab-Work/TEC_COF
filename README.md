@@ -3,9 +3,7 @@ Yanning Li, Sep 13, 2015
 emlynlyn@gmail.com
 
 This code supports:
-
 1. traffic estimation on a network (connection, merge, diverge), given the boudnary conditions. 
-
 2. traffic control on a network with controllable ramps.
 
 ### Features:
