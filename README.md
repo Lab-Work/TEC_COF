@@ -13,7 +13,7 @@ Yanning Li, Sep 13 2015, emlynlyn@gmail.com
 5. Compared to previous version, this version is class based; uses dictionaries (MATLAB struct) insteaded of using global indexing; uses MATLAB index (starts from 1) instead of original index (based on java starts from 0); has much more intuitive and precise function and variable names.
 6. The user only need to write the main scipt which creates objects of classes for different estimation and control scenarios.
 
-### Structure of the code:
+### Structure of the toolbox:
 -script: This script defines the network and application. Run as main function.
 -initNetwork: the class that contains all necessary topology information and data for a network.
 -optProgram: the class that builds an optimization program and output solutions.
