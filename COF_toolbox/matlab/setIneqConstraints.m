@@ -11,17 +11,36 @@
 % 3. This version supports different levels of error for the value
 %   conditions.
 % 4.This version supports uneven discretization of the time and space.
-
-
-% The index of the variables is
-% [q_us, q_ds, rho_ini, L_traj, r_traj, rho_dens,...
-% bool_traj_min, bool_traj_max, bool_dens_min, book_dens_max, 
-% other auxilary variables]
-
-% Todo:
 % 5. This version has full support for the initial condition, the boundary
 %   condition, the internal condition, the density condition. Those
 %   conditions are interacting. Requries quite some effort to fix.
+
+% The index of the variables is
+% [q_us, q_ds, rho_ini, L_traj, r_traj, L_dens, rho_dens,...
+% bool_traj_min, bool_traj_max, bool_dens_min, book_dens_max, 
+% other auxilary variables]
+
+% Description of value conditions:
+% Boundary condition: q_us, q_ds. The boundary flows at upstream and
+%       downstream position
+% Initial condition: rho_ini. The initial density on the road.
+% Internal trajectory condition: L_traj, r_traj. Internal condition is to 
+%       incorporate the trajectory data collected by probe vehicles. 
+%       Each internal condition is defined by a line segment. The position 
+%       of the line is defined by two points. The decision variables 
+%       associated with each internal condition are the vehicle id of that 
+%       line trajectory L_traj, and the passing rate r_traj. The passing 
+%       rate r_traj allows vehicles to pass this traj which is realistic in 
+%       multiple-lane traffic.
+% Density condition: L_dens, rho_dens. The density is similar to the
+%       initial condition except that it can be defined at any time. It is
+%       more useful for defining the objective. For instance, minimizing the 
+%       L1 norm of adjacent density conditions, which can smooth the final
+%       estimates of the traffic density. 
+%       Each density condition is defined by a vetical line segment. The
+%       decision variables associated with each density condition are the
+%       L_dens, which is the vehicle id at the x_min point; the rho_dens
+%       which is the density in that line segment. 
 
 
 classdef setIneqConstraints
@@ -120,6 +139,10 @@ classdef setIneqConstraints
         % auxiliary variables
         num_aux;
         size_row;
+        
+        % total number of boolean variables
+        num_bool;
+        
     end
     
     methods
@@ -151,7 +174,7 @@ classdef setIneqConstraints
                 Initial_con, Traj_con, Dens_con, ...
                 errors)            
             
-            self.num_us_con = size(Boundary_con.BS_us,1);   % boundary conditions
+            self.num_us_con = size(Boundary_con.BC_us,1);   % boundary conditions
             self.num_ds_con = size(Boundary_con.BC_ds,1);
             
             self.num_initial_con = size(Initial_con.IC,1);   % initial conditions
@@ -161,12 +184,21 @@ classdef setIneqConstraints
             % set road parameters
             self.v = para.vf;
             self.w = para.w;
-            self.k_c = para.k_c;
-            self.k_m = para.k_m;
+            self.k_c = para.kc;
+            self.k_m = para.km;
             
             self.start_time = start_time;
             self.now_time = now_time;
             self.end_time = end_time;
+            
+            
+            % For some auxiliary variabels which can be helpful when
+            % defining objectives.
+            self.num_aux = 0;
+            
+            % initialize the number of boolean variabels as 0
+            self.num_bool = 0;
+            
             
             % set the errors
             if isfield(errors, 'e_his')
@@ -198,18 +230,16 @@ classdef setIneqConstraints
             self.us_pos_m = 0;  % relative postm for each link
             self.ds_pos_m = para.postm;
             
-            % if still using uniform discretization
+            % Boundary condition
             self.T_us = Boundary_con.T_us;
             self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
             self.T_ds = Boundary_con.T_ds;
             self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
-            
-            % set boundary condition
-            self.qin_meas = BS_us;
-            self.qout_meas = BC_ds;
+            self.qin_meas = Boundary_con.BC_us;
+            self.qout_meas = Boundary_con.BC_ds;
             
             % internal trajectory condition
-            if isempty(Traj_con)
+            if isempty(Traj_con) || isempty(fieldnames(Traj_con))
                 % if the trajectory condition struct is empty, then disable
                 % trajectory condition
                 self.x_min_traj = [];
@@ -219,17 +249,25 @@ classdef setIneqConstraints
                 self.v_meas_traj = [];
                 self.r_meas_traj = [];
             else
-                error('ERROR: Internal trajecotry condition not supported.\n')
+                self.x_min_traj = Traj_con.x_min_traj;
+                self.x_max_traj = Traj_con.x_max_traj;
+                self.t_min_traj = Traj_con.t_min_traj;
+                self.t_max_traj = Traj_con.r_max_traj;
+                self.v_meas_traj = Traj_con.v_meas_traj;
+                self.r_meas_traj = Traj_con.r_meas_traj;
             end
             
-            % if empty, then disable density condition
-            if isempty(Dens_con)
+            % Density condition
+            if isempty(Dens_con) || isempty(fieldnames(Dens_con))
                 self.x_min_dens = [];
                 self.x_max_dens = [];
                 self.t_dens = [];
                 self.dens_meas = [];
             else
-                error('ERROR: Density condition not supported.\n')
+                self.x_min_dens = Dens_con.x_min_dens;
+                self.x_max_dens = Dens_con.x_max_dens;
+                self.t_dens = Dens_con.t_dens;
+                self.dens_meas = Dens_con.dens_meas;
             end
             
             
@@ -268,13 +306,11 @@ classdef setIneqConstraints
             else
                 self.indiced_rho_ini = [];
             end
-            
-            self.num_aux = 0;
-            
+
             self.size_row = self.num_us_con + self.num_ds_con +...
-                          self.num_initial_con + ...
-                          2*self.num_internal_con + ...
-                          2*self.num_density_con + 1; 
+                            self.num_initial_con + ...
+                            2*self.num_internal_con + ...
+                            2*self.num_density_con + 1; 
                       
             %This row size if defined as a temporary one to compute the number of needed binary variables
             [self.nb_min_traj, self.nb_max_traj, self.nb_min_dens, self.nb_max_dens] = self.getBinaryvar;
@@ -283,7 +319,10 @@ classdef setIneqConstraints
                             2*self.num_internal_con + 2*self.num_density_con + ...
                             sum(self.nb_min_traj) + sum(self.nb_max_traj) + ...
                             sum(self.nb_min_dens) + sum(self.nb_max_dens) + ...
-                            sum(self.num_aux) + 1;  
+                            sum(self.num_aux) + 1; 
+                        
+            self.num_bool = sum(self.nb_min_traj) + sum(self.nb_max_traj) + ...
+                            sum(self.nb_min_dens) + sum(self.nb_max_dens);
             
         end
         
@@ -3230,7 +3269,7 @@ classdef setIneqConstraints
         
         
         %===============================================================
-        % utility function
+        % Utility function
         % This function is used to group the same element into blocks
         % input:
         %       k_ori: a row vector that we would like to group same elements into

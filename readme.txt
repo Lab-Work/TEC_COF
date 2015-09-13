@@ -1,4 +1,5 @@
-Update in MPC version
+Version updates:
+
 Improvements:
 1. The new version of the code uses matlab struct (similar to dictionary) instead of matrix indexing. The readability of the code is much better and there is no need for the initEnv.m file for setting the global indexing variables.
 2. Rewrote the dynamic grid algorithm, which is now cleaner.
@@ -21,30 +22,22 @@ Details:
 9. Changed the variable names in setIneqConstraints to more intuitive names.
 10. Added an errors structure which supports different levels of error for each type of measurement.
 11. Enabled internal and density conditions
+12. When converting min(s1, s2) to linear constraints by adding bools variables, we used C=500000 which we thought was large enough. Now we used inf directly.
+13. Added clear description on internal and density conditions in setIneqConstraints class
+14. Updated dv_index structure which now supports internal, density, and bool variables.
 
 Todo:
-- More clearly define the internal conditions variable and the density condition variable. The density condition in current version need 2*num_dens_con, not sure why. To investigate.
-- enable internal and density conditions to the framework. The density condition is helpful for setting the objective as minimizing the L1 error.
-- update the dv_index structure.
-- When converting min(s1, s2) to linear constraints by adding bools variables, we used C=500000 which we thought was large enough. Now we used inf directly.
 - investigate AIMSUN ramp metering scheme and define the signal format.
 - auto logging with time stamps
 - unit conversion. Easier to read the density and flow.
-
+- Write a python script for to test if the toolbox works for control
+- Remote back and work on the API.
 
 Issues:
+- The upper and lower bound for internal and density decision variables are set as -inf and inf. To investigate a little bit more to learn a realistic range.
 - We have not defined an offramp actuator yet. We use a green red cycle ramp meter for onramp control.
 - Need to properly define a meaningful control objective.
 - In find slope functions, if the interval is too small, the functions just return NaN which will introduce an error. Fix by computing an approximated slope.
-
-
-
-
-Goal:
-2. add density and internal conditions
-3. Write a python script for to test if the toolbox works for control
-4. Remote back and work on the API.
-
 
 
 

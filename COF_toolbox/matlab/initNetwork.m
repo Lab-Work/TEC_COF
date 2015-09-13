@@ -201,8 +201,65 @@ classdef initNetwork < handle
         end
         
         
+        %===============================================================
+        % Set internal condition of each link
+        % input:
+        %       t_interval: nx2 matrix; each row [t_min_traj, t_max_traj]
+        %       x_interval: nx2 matrix; each row [x_min_traj, x_max_traj]
+        %       r_meas: the passing rate of each condition
+        function setInternalCon(self, link, t_interval, x_interval, r_meas)
+            
+            if ~any(self.link_labels == link)
+                error('ERROR: Link %d not defined in the network\n', link);
+            end
+            
+            if size(t_interval,1) ~= length(r_meas) || ...
+                    size(x_interval,1) ~= length(r_meas)
+                error('ERROR: the internal condition is not correctly defined\n')
+            end
+            
+            linkStr = sprintf('link_%d',link);
+            self.network_hwy.(linkStr).x_min_traj = x_interval(:,1);
+            self.network_hwy.(linkStr).x_max_traj = x_interval(:,2);
+            self.network_hwy.(linkStr).t_min_traj = t_interval(:,1);
+            self.network_hwy.(linkStr).t_max_traj = t_interval(:,2);
+            self.network_hwy.(linkStr).r_meas_traj = r_meas;
+            
+            self.network_hwy.(linkStr).v_meas_traj = ...
+                (x_interval(:,2)-x_interval(:,1))./...
+                (t_interval(:,2)-t_interval(:,1));
+
+        end
+        
+        
+        %===============================================================
+        % Set density condition of each link
+        % input:
+        %       t_dens: nx1 matrix; each row [t_dens]
+        %       x_interval: nx2 matrix; each row [x_min_traj, x_max_traj]
+        %       dens_meas: nx1; the absolute density 
+        function setDensityCon(self, link, t_dens, x_interval, dens_meas)
+            
+            if ~any(self.link_labels == link)
+                error('ERROR: Link %d not defined in the network\n', link);
+            end
+            
+            if size(t_dens,1) ~= length(dens_meas) || ...
+                    size(x_interval,1) ~= length(dens_meas)
+                error('ERROR: the density condition is not correctly defined\n')
+            end
+            
+            linkStr = sprintf('link_%d',link);
+            self.network_hwy.(linkStr).x_min_dens = x_interval(:,1);
+            self.network_hwy.(linkStr).x_max_dens = x_interval(:,2);
+            self.network_hwy.(linkStr).t_dens = t_dens;
+            self.network_hwy.(linkStr).dens_meas = dens_meas;
+
+        end
+        
+        
         % Some useful functions
-        function [co] = columnize(self, v)
+        function [co] = columnize(~, v)
             if iscolumn(v)
                 co = v;
             else

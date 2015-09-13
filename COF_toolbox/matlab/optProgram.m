@@ -117,9 +117,22 @@ classdef optProgram < handle
                 
                 % save and pass internal trajectory conditions in a struct
                 Traj_con = struct;
-                
+                if isfield(net.network_hwy.(linkStr), 'x_min_traj')
+                    Traj_con.x_min_traj = net.network_hwy.(linkStr).x_min_traj;
+                    Traj_con.x_max_traj = net.network_hwy.(linkStr).x_max_traj;
+                    Traj_con.t_min_traj = net.network_hwy.(linkStr).t_min_traj;
+                    Traj_con.t_max_traj = net.network_hwy.(linkStr).t_max_traj;
+                    Traj_con.v_meas_traj = net.network_hwy.(linkStr).v_meas_traj;
+                    Traj_con.r_meas_traj = net.network_hwy.(linkStr).r_meas_traj;
+                end
                 % save and pass the density condition in a struct
                 Dens_con = struct;
+                if isfield(net.network_hwy.(linkStr), 'x_min_dens')
+                    Dens_con.x_min_dens = net.network_hwy.(linkStr).x_min_dens;
+                    Dens_con.x_max_dens = net.network_hwy.(linkStr).x_max_dens;
+                    Dens_con.t_dens = net.network_hwy.(linkStr).t_dens;
+                    Dens_con.dens_meas = net.network_hwy.(linkStr).dens_meas;
+                end
                 
                 % set inequality constraints
                 constraints_ineq = setIneqConstraints(...
@@ -131,7 +144,21 @@ classdef optProgram < handle
                 % Get the model and data constraints
                 link_model_constraints = constraints_ineq.setModelMatrix;
                 link_data_constraints = constraints_ineq.setDataMatrix;
-                link_constraints = [link_model_constraints; link_data_constraints];
+                if isempty(Traj_con) || isempty(fieldnames(Traj_con))
+                    link_internal_constraints = [];
+                else
+                    link_internal_constraints = constraints_ineq.setInternalConstraints;
+                end
+                if isempty(Dens_con) || isempty(fieldnames(Dens_con))
+                    link_density_constraints = [];
+                else
+                    link_density_constraints = constraints_ineq.setDensityConstraints;
+                end
+                
+                link_constraints = [link_model_constraints; ...
+                                    link_internal_constraints;...
+                                    link_density_constraints;...
+                                    link_data_constraints];
                 
                 % number of rows to be added in the constraints
                 num_row_constraints = size(link_constraints, 1);
@@ -168,7 +195,58 @@ classdef optProgram < handle
                 self.dv_index.(linkStr).initial(2,1) = self.dv_index_max + ...
                     length(net.network_hwy.(linkStr).IC);
                 self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).IC);
+                % add index for internal conditions
+                if isempty(Traj_con) || isempty(fieldnames(Traj_con))
+                    % No internal conditions, then do not set dv_index
+                else
+                    % For the vehicle ID
+                    self.dv_index.(linkStr).internal_L(1,1) = self.dv_index_max + 1;
+                    self.dv_index.(linkStr).internal_L(2,1) = self.dv_index_max + ...
+                        length(net.network_hwy.(linkStr).r_meas_traj);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).r_meas_traj);
                     
+                    % For the passing rate
+                    self.dv_index.(linkStr).internal_r(1,1) = self.dv_index_max + 1;
+                    self.dv_index.(linkStr).internal_r(2,1) = self.dv_index_max + ...
+                        length(net.network_hwy.(linkStr).r_meas_traj);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).r_meas_traj);
+                    
+                end
+                % add index for density conditions
+                if isempty(Dens_con) || isempty(fieldnames(Dens_con))
+                    % no density condition, do nothing
+                else
+                    % For the vehicle ID
+                    self.dv_index.(linkStr).density_L(1,1) = self.dv_index_max + 1;
+                    self.dv_index.(linkStr).density_L(2,1) = self.dv_index_max + ...
+                        length(net.network_hwy.(linkStr).dens_meas);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).dens_meas);
+                    
+                    % For the density
+                    self.dv_index.(linkStr).density_rho(1,1) = self.dv_index_max + 1;
+                    self.dv_index.(linkStr).density_rho(2,1) = self.dv_index_max + ...
+                        length(net.network_hwy.(linkStr).dens_meas);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).dens_meas);
+                end  
+                
+                % For all the auxiliary boolean variables
+                if constraints_ineq.num_bool ~= 0
+                    self.dv_index.(linkStr).bool(1,1) = self.dv_index_max + 1;
+                    self.dv_index.(linkStr).bool(2,1) = self.dv_index_max + ...
+                        constraints_ineq.num_bool;
+                    self.dv_index_max = self.dv_index_max + constraints_ineq.num_bool;
+                end
+                
+                % For all other auxiliary variables used to define the
+                % objective function
+                if constraints_ineq.num_aux ~= 0
+                    self.dv_index.(linkStr).aux(1,1) = self.dv_index_max + 1;
+                    self.dv_index.(linkStr).aux(2,1) = self.dv_index_max + ...
+                        constraints_ineq.num_aux;
+                    self.dv_index_max = self.dv_index_max + constraints_ineq.num_aux;
+                end
+                
+                
             end
             
             % save the maximal index for the decision variable associated
@@ -284,18 +362,50 @@ classdef optProgram < handle
                 
                 linkStr = sprintf('link_%d',link);
                 
-                % lower bound for q and rho
+                % For boundary conditions
                 self.lb(self.dv_index.(linkStr).upstream(1,1):self.dv_index.(linkStr).upstream(2,1)) = 0;
                 self.lb(self.dv_index.(linkStr).downstream(1,1):self.dv_index.(linkStr).downstream(2,1)) = 0;
-                self.lb(self.dv_index.(linkStr).initial(1,1):self.dv_index.(linkStr).initial(2,1)) = 0;
-                
-                % upper bound for q and rho
                 self.ub(self.dv_index.(linkStr).upstream(1,1):self.dv_index.(linkStr).upstream(2,1)) = ...
                     1.0*net.network_hwy.(linkStr).para_qmax;
                 self.ub(self.dv_index.(linkStr).downstream(1,1):self.dv_index.(linkStr).downstream(2,1)) = ...
                     1.0*net.network_hwy.(linkStr).para_qmax;
+                                
+                % For initial conditions
+                self.lb(self.dv_index.(linkStr).initial(1,1):self.dv_index.(linkStr).initial(2,1)) = 0;
                 self.ub(self.dv_index.(linkStr).initial(1,1):self.dv_index.(linkStr).initial(2,1)) = ...
                     1.0*net.network_hwy.(linkStr).para_km;
+                
+                % For internal condition: L and r; just put large values
+                % here until we get more heuristic knowlege on their range
+                % if has internal condition
+                if isfield(self.dv_index.(linkStr), 'internal_L')
+                    self.lb(self.dv_index.(linkStr).internal_L(1,1):self.dv_index.(linkStr).internal_L(2,1)) = -inf;
+                    self.ub(self.dv_index.(linkStr).internal_L(1,1):self.dv_index.(linkStr).internal_L(2,1)) =  inf;
+                    self.lb(self.dv_index.(linkStr).internal_r(1,1):self.dv_index.(linkStr).internal_r(2,1)) = -inf;
+                    self.ub(self.dv_index.(linkStr).internal_r(1,1):self.dv_index.(linkStr).internal_r(2,1)) =  inf;
+                end
+                
+                % For density condition
+                if isfield(self.dv_index.(linkStr), 'density_L')
+                    self.lb(self.dv_index.(linkStr).density_L(1,1):self.dv_index.(linkStr).density_L(2,1)) = -inf;
+                    self.ub(self.dv_index.(linkStr).density_L(1,1):self.dv_index.(linkStr).density_L(2,1)) =  inf;
+                    self.lb(self.dv_index.(linkStr).density_rho(1,1):self.dv_index.(linkStr).density_rho(2,1)) = 0;
+                    self.ub(self.dv_index.(linkStr).density_rho(1,1):self.dv_index.(linkStr).density_rho(2,1)) =  ...
+                        1.0*net.network_hwy.(linkStr).para_km;
+                end
+                
+                % For boolean variables
+                if isfield(self.dv_index.(linkStr), 'bool')
+                    self.lb(self.dv_index.(linkStr).bool(1,1):self.dv_index.(linkStr).bool(2,1)) = 0;
+                    self.ub(self.dv_index.(linkStr).bool(1,1):self.dv_index.(linkStr).bool(2,1)) = 1;
+                end
+                
+                % For auxiliary variables
+                if isfield(self.dv_index.(linkStr), 'aux')
+                    self.lb(self.dv_index.(linkStr).aux(1,1):self.dv_index.(linkStr).aux(2,1)) = -inf;
+                    self.ub(self.dv_index.(linkStr).aux(1,1):self.dv_index.(linkStr).aux(2,1)) =  inf;
+                end
+                
             end
             
             % set the upper and lower bound for auxiliary vairlabels e at
@@ -312,9 +422,20 @@ classdef optProgram < handle
                 
             end
             
-           
-            % set variable type, here assume all continuous
+            % set variable type, here assume all continuous except bools
             self.ctype(1:self.dv_index_max) = 'C';
+            for link = net.link_labels'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % For boolean variables
+                if isfield(self.dv_index.(linkStr), 'bool')
+                    self.ctype(self.dv_index.(linkStr).bool(1,1):self.dv_index.(linkStr).bool(2,1)) = 'B';
+                end
+                
+            end
+            
+            
         end
         
         
