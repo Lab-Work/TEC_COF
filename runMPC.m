@@ -18,7 +18,20 @@ meter.configController(2*60*60, 60*60, 30*60, 5*60,'onrampControl');
 % set up communication
 meter.setUpCommunication();
 
-initEnv;
+%% default_para
+default_para = struct;
+default_para.beta_off = 0.2;
+default_para.vf = 65*1609/3600;  %65 miles/hr
+default_para.w = -(7.5349)*1609/3600;     %m/s calibrated from corsim
+%default_para.w = -(8.125)*1609/3600;     %m/s Here v/w = 8, just to resolve the discritization error
+default_para.kc_pl = 34.6569/1609;          %veh/m calibrated from corsim
+default_para.qmax_pl = default_para.kc_pl*default_para.vf;  %veh/s
+default_para.qon_max = default_para.kc_pl*default_para.vf; 
+default_para.qoff_max = default_para.kc_pl*default_para.vf;
+default_para.km_pl = default_para.kc_pl*(default_para.w-default_para.vf)/default_para.w;
+default_para.v_min = 0*1609/3600;
+default_para.v_max = 65*1609/3600;
+default_para.e_max = 0.0;
 
 %===============================================================
 % read the network information
