@@ -182,7 +182,6 @@ classdef postSolution < handle
             end
             
             
-            
             for link = links'
                 
                 linkStr = sprintf('link_%d',link);
@@ -914,11 +913,11 @@ classdef postSolution < handle
                         % search the intersection of shockwaves on incoming links
                         % t_found = searchBoundaryIntersection(obj, t_interval, M_interval, slope, ...
                         %                      link, bound, searchDepth, dt_tol)
-                        t_found_s = searchBoundaryIntersection(self, [t_left, t_right]', [0, NaN]', [NaN, NaN]',...
-                                            up_link, 'downstream', searchDepth, d_t);
+                        t_found_s = searchBoundaryIntersection(self, [t_left, t_right]', [0, NaN]',...
+                                            [NaN, NaN]', up_link, 'downstream', searchDepth, d_t);
                         % search the intersection of shockwaves on outgoing links
-                        t_found_r = searchBoundaryIntersection(self, [t_left, t_right]', [0, NaN]', [NaN, NaN]',...
-                                            outlink, 'upstream', searchDepth, d_t);
+                        t_found_r = searchBoundaryIntersection(self, [t_left, t_right]', [0, NaN]',...
+                                            [NaN, NaN]', outlink, 'upstream', searchDepth, d_t);
                         
                         t_found = [t_found_s; t_found_r];
                     else
@@ -1226,9 +1225,9 @@ classdef postSolution < handle
             % 1. slopes are parallel; 2. intersection outside of
             % the interval; 3. cornerpoint not valid in sample
             t_found_left = self.searchBoundaryIntersection([t_L; t_C], [M_L; M_C],...
-                [s_L; NaN], link, bound, searchDepth+1, dt_tol);
+                [NaN; NaN], link, bound, searchDepth+1, dt_tol);
             t_found_right = self.searchBoundaryIntersection([t_C; t_R], [M_C; M_R],...
-                [NaN; s_R], link, bound, searchDepth+1, dt_tol);
+                [NaN; NaN], link, bound, searchDepth+1, dt_tol);
             
             t_found = [t_found; t_found_left; t_found_right];
                         

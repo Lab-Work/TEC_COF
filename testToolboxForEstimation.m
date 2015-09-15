@@ -12,7 +12,7 @@ profile on
 %===============================================================
 % configuration paramters
 runCtrl = 'no_control'; % This parameter can be later used for optimal control 
-entropyTolerance = 0.2; % number of vehicles that we would consider as entropic solution
+entropyTolerance = 1; % number of vehicles that we would consider as entropic solution
 
 sim_steps = 5;
 step_length = 30;   % seconds
@@ -27,7 +27,7 @@ end_time = sum(T_BC_data);
 % eliminate the discretization error.
 T_junc= T_BC_data;
 
-%% default_para
+% default_para
 default_para = struct;
 default_para.beta_off = 0.2;
 default_para.vf = 65*1609/3600;  %65 miles/hr
@@ -48,34 +48,45 @@ if strcmp(runCtrl,'no_control') == 1
     % Maximize the out flow of a single link
 
     % test length
-    len_link1 = 1;    %km
-    len_link2 = 1;
-    len_link3 = 1;
+    len_link1 = 1.1;    %km
+    len_link2 = 1.2;
+    len_link3 = 1.3;
     
     % Initial traffic density is initialized as segments with equal length
     % Normalized to rho_c
-%     rho_tmp = randn(sim_steps, 1) + 0.5;
-%     rho_tmp(rho_tmp <= 0.2) = 0.2;
-%     rho_tmp(rho_tmp >= 1.5) = 1.5;
-%     Ini_1 = rho_tmp;
-    Ini_1.IC = [2, 2, 1, 0.2, 0.2]';
+    rho_tmp = randn(sim_steps, 1) + 0.5;
+    rho_tmp(rho_tmp <= 0.2) = 0.2;
+    rho_tmp(rho_tmp >= 1.5) = 1.5;
+    Ini_1.IC = rho_tmp;
+    % Ini_1.IC = [1, 0.3, 1, 0.2, 1]';
 
-%     rho_tmp = randn(sim_steps, 1) + 0.5;
-%     rho_tmp(rho_tmp <= 0.2) = 0.2;
-%     rho_tmp(rho_tmp >= 1.5) = 1.5;
-%     Ini_2 = rho_tmp;
-    Ini_2.IC = [1, 0.5, 1, 0.5, 1]';
-    Ini_3.IC = zeros(sim_steps, 1);
+    rho_tmp = randn(sim_steps, 1) + 0.5;
+    rho_tmp(rho_tmp <= 0.2) = 0.2;
+    rho_tmp(rho_tmp >= 1.5) = 1.5;
+    Ini_2.IC = rho_tmp;
+    % Ini_2.IC = [1, 0.5, 1, 0.5, 1]';
+    
+    rho_tmp = randn(sim_steps, 1) + 0.5;
+    rho_tmp(rho_tmp <= 0.2) = 0.2;
+    rho_tmp(rho_tmp >= 1.5) = 1.5;
+    Ini_3.IC = rho_tmp;
+    % Ini_3.IC = [0, 0, 0, 0, 0]';
     
     % Boundary condition at the two entrances and the one exit
     % Normalized to q_max
     % generate a random upstream flow
-%     q_tmp = randn(sim_steps, 1) + 1;
-%     q_tmp(q_tmp <= 0.5) = 0.5;
-%     q_tmp(q_tmp >= 0.9) = 0.9;
-%     q1_us_data = q_tmp;
-    q1_us_data = [0.5, 0.9, 0.5, 0.9, 0.5]';
-    q2_us_data = [0.9, 0.5, 0.9, 0.5, 0.9]';
+    q_tmp = randn(sim_steps, 1) + 1;
+    q_tmp(q_tmp <= 0.5) = 0.5;
+    q_tmp(q_tmp >= 0.9) = 0.9;
+    q1_us_data = q_tmp;
+    % q1_us_data = [0.4, 0.9, 0.7, 0.9, 0.5]';
+    
+    
+    q_tmp = randn(sim_steps, 1) + 1;
+    q_tmp(q_tmp <= 0.5) = 0.5;
+    q_tmp(q_tmp >= 0.9) = 0.9;
+    q2_us_data = q_tmp;
+    %q2_us_data = [0.9, 0.5, 0.9, 0.5, 0.9]';
     
 %     q_tmp = randn(sim_steps, 1) + 1;
 %     q_tmp(q_tmp <= 0.5) = 0.5;
@@ -108,10 +119,10 @@ while getEntropy == false && loopCounter <=50
     net = initNetwork;
     net.addLink(1, default_para, 1, len_link1, 'freeway');
     net.addLink(2, default_para, 1, len_link2, 'freeway');
-    net.addLink(3, default_para, 1, len_link3, 'freeway');
+    net.addLink(3, default_para, 1.3, len_link3, 'freeway');
     
     % function addJunc(self, junc, inlabel, outlabel, type_junc, ratio, T)
-    net.addJunc(1, [1, 2]', 3, 'merge', [1; 3], T_junc);
+    net.addJunc(1, [1, 2]', 3, 'merge', [1; 1], T_junc);
     
     %===============================================================                         
     % set initial conditoins
@@ -127,7 +138,9 @@ while getEntropy == false && loopCounter <=50
     % define and solve optimization program
     LP = optProgram;
     LP.setConfig(start_time, end_time);
-    errors.e_default = 0.1;
+    
+    % set the error
+    errors.e_default = 0.0;
     LP.setConstraints(net, errors);
     
     %===============================================================
