@@ -136,6 +136,7 @@ classdef initNetwork < handle
                 
                 tmp_dx = self.network_hwy.(linkStr).para_postkm*1000/num_seg;
                 self.network_hwy.(linkStr).X_grid_cum = (0:num_seg)'*tmp_dx;
+                
             else
                 self.network_hwy.(linkStr).X_grid_cum = rho_ini.X_grid_cum;
             end

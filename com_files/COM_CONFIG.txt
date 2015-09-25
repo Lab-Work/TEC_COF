@@ -2,16 +2,18 @@
 % This file defines the file names that to be used for communication
 %
 % The file that defines the network
-net,E:\\Coding\\net.txt
-net_write_done,E:\\Coding\\net_write_done.txt
+net,E:\\AIMSUN_MATLAB_COM\\net.txt
+net_write_done,E:\\AIMSUN_MATLAB_COM\\net_write_done.txt
 %
 % The measurement data file
-data,E:\\Coding\\data.txt
-data_write_done,E:\\Coding\\data_write_done.txt
+data,E:\\AIMSUN_MATLAB_COM\\data.txt
+data_write_done,E:\\AIMSUN_MATLAB_COM\\data_write_done.txt
 %
 % the control signal file
-signal,E:\\Coding\\signal.txt
-signal_write_done,E:\\Coding\\signal_write_done.txt
+signal,E:\\AIMSUN_MATLAB_COM\\signal.txt
+signal_write_done,E:\\AIMSUN_MATLAB_COM\\signal_write_done.txt
 %
 % matlab initialization done file
-matlab_init_done,E:\\Coding\\matlab_init_done.txt
+matlab_init_done,E:\\AIMSUN_MATLAB_COM\\matlab_init_done.txt
+simulation_completed,E:\\AIMSUN_MATLAB_COM\\simulation_completed.txt
+stop_control,E:\\AIMSUN_MATLAB_COM\\stop_control.txt

@@ -818,7 +818,7 @@ classdef postSolution < handle
         %           earlier steps first
         % output: 
         %       T_new_cum: struct, .(juncStr). The updated time grid. 
-        function T_new_cum = updateTimeDiscretization(self, steps)
+        function T_new_grid = updateTimeDiscretization(self, steps)
                         
             % recursively search uses a binary cut method to locate the
             % intersection point. 
@@ -828,7 +828,7 @@ classdef postSolution < handle
             d_t = 1.0e-3;    % 0.001 second
             
             % the new discretization grid to be returned.
-            T_new_cum = struct;
+            T_new_grid = struct;
             
             % check each junction
             for junc = self.net.junc_labels'
@@ -1083,10 +1083,31 @@ classdef postSolution < handle
                 end
                 
                 % add new found intersection point in the discretization grid
-                T_tmp_cum = [T_tmp_cum; t_found(t_found<end_time)];
+                T_tmp_cum = self.unique_tol([T_tmp_cum; t_found(t_found<end_time)], 1.0e-8);
                 
-                % return sorted and unique discretization accumulative points
-                T_new_cum.(juncStr) = self.unique_tol(T_tmp_cum, 1.0e-8);
+                % return the duration
+                T_new_grid.(juncStr).T = T_tmp_cum(2:end) - T_tmp_cum(1:end-1);
+                T_new_grid.(juncStr).T_cum = T_tmp_cum;
+                
+                % Also update the the grid at the connecting links
+                for link = self.net.network_junc.(juncStr).inlabel'
+                        
+                    linkStr = sprintf('link_%d',link);
+                    T_new_grid.(linkStr).T_ds = T_new_grid;
+                    T_new_grid.(linkStr).T_ds_cum = T_tmp_cum;
+                    T_new_grid.(linkStr).BC_ds = T_new_grid*NaN;
+                    
+                end
+                
+                for link = self.net.network_junc.(juncStr).outlabel'
+                    
+                    linkStr = sprintf('link_%d',link);
+                    T_new_grid.(linkStr).T_us = T_new_grid;
+                    T_new_grid.(linkStr).T_us_cum = T_tmp_cum;
+                    T_new_grid.(linkStr).BC_us = T_new_grid*NaN;
+                    
+                end
+                
                 
             end
             

@@ -42,6 +42,9 @@ default_para.v_min = 0*1609/3600;
 default_para.v_max = 65*1609/3600;
 default_para.e_max = 0.0;    
 
+% set the error
+errors.e_default = 0.0;
+
 %===============================================================
 if strcmp(runCtrl,'no_control') == 1
     % here we define an example
@@ -139,8 +142,6 @@ while getEntropy == false && loopCounter <=50
     LP = optProgram;
     LP.setConfig(start_time, end_time);
     
-    % set the error
-    errors.e_default = 0.0;
     LP.setConstraints(net, errors);
     
     %===============================================================

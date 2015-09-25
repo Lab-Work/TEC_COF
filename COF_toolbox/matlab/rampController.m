@@ -24,12 +24,6 @@ classdef rampController < handle
         % The network to be controlled
         net;
         
-        % The optimization program to be solved
-        CP;
-        
-        % The post optimization object
-        Mos;
-        
         % historical data
         historical_data;
         
@@ -56,10 +50,10 @@ classdef rampController < handle
         % at this time.
         t_horizon_end;
         
-        % rolling step duration. This parameter should be the interval
-        % between two measurement. Set this parameter to prevent updating
-        % the control signal too fast
-        dt_roll_step;
+%         % rolling step duration. This parameter should be the interval
+%         % between two measurement. Set this parameter to prevent updating
+%         % the control signal too fast
+%         dt_roll_step;
         
         % the duration for warming up.
         dt_warm_up;
@@ -74,6 +68,12 @@ classdef rampController < handle
         % the current time in system
         t_now;
         
+        % the following two are the simulated time for CP
+        % t_sim_start = max(t_horizon_start, t_now-dt_past)
+        % t_sim_end = min(t_horizon_edn, t_now+dt_predict)
+        t_sim_start;
+        t_sim_end;
+        
         % other paramters that can be leave as default
         % the entropic solution tolerance in veh
         entropy_tolerance;  
@@ -85,34 +85,34 @@ classdef rampController < handle
         % the type of the controller: 'none', 'onramp', 'offramp'
         control_type;
         
-        % accuracy of different types of data
-        % The accuracy of the historical data
-        e_historical_flow; 
+%         % accuracy of different types of data
+%         % The accuracy of the historical data
+%         e_historical_flow; 
+%         
+%         % The accuracy of new boundary flow data
+%         e_flow_measurement;
+%         e_speed_measurement;
+%         
+%         % The estimation error of the initial density
+%         e_init_estimation;
         
-        % The accuracy of new boundary flow data
-        e_flow_measurement;
-        e_speed_measurment;
-        
-        % The estimation error of the initial density
-        e_init_estimation;
-        
-        % The following are flag files for communication between MATLAB and
-        % AIMSUN
-        % the network file written by AIMSUN, containing the network
-        % topology and properties
-        com_net_write_done;
-        com_net_file;
-        
-        % the new boundary data file written by AIMSUN
-        com_data_write_done;
-        com_data_file;
-        
-        % the updated signal file written by MATLAB
-        com_signal_write_done;  % if exists, meaning signal updated
-        com_signal_file;
-        
-        % the initialization of MATLAB is done
-        com_matlab_init_done;
+        % The struct that saves the communication file paths
+        com;
+        % it contains:
+        % - the network file written by AIMSUN, containing the network
+        %   topology and properties
+        %   net_write_done;
+        %   net;
+        % - the new boundary data file written by AIMSUN
+        %   data_write_done;
+        %   data;
+        % - the updated signal file written by MATLAB
+        %   signal_write_done;  % if exists, meaning signal updated
+        %   signal;
+        % - the initialization of MATLAB is done
+        %   matlab_init_done;
+        % - the flag for the simulation completed
+        %   simulation_completed;
         
     end
     
@@ -137,25 +137,29 @@ classdef rampController < handle
             self.dx_res = 5;    % m
             self.dt_res = 2;    % s
             
-            self.e_historical_flow = 0.3;
-            self.e_flow_data = 0.05;
-            self.e_speed_data = 0.1;
+%             self.e_historical_flow = 0.3;
+%             self.e_flow_measurement = 0.05;
+%             self.e_speed_measurement = 0.1;
+%             
+%             self.e_init_estimation = 0.1;
             
-            self.e_init_estimation = 0.1;
+            self.net = struct;
             
         end
         
         
         %===============================================================
         % configure the control parameters
-        function configController(self, simulation_end_time,...
-                                  dt_past, dt_predict, dt_roll_step,...
+        function configController(self, simulation_start_time,... 
+                                  simulation_end_time,...
+                                  dt_past, dt_predict, ...
                                   control_type)
-                           
+                              
+            self.t_horizon_start = simulation_start_time;               
             self.t_horizon_end = simulation_end_time;
             self.dt_past = dt_past;
             self.dt_predict = dt_predict;
-            self.dt_roll_step = dt_roll_step;
+%             self.dt_roll_step = dt_roll_step;
             
             self.control_type = control_type;
             
@@ -173,24 +177,24 @@ classdef rampController < handle
             for line = com_config
                 
                 % parse and set corresponding paths
-                items = strsplit(line,',');
+                items = strsplit(line{1},',');
                 
-                if strcmp(items{1}, 'net')
-                    self.com_net_file = items{2};
-                elseif strcmp(items{1}, 'net_write_done')
-                    self.com_net_write_done = items{2};
-                elseif strcmp(items{1}, 'data')
-                    self.com_data_file = items{2};
-                elseif strcmp(items{1}, 'data_write_done')
-                    self.com_data_write_done = items{2};
-                elseif strcmp(items{1}, 'signal')
-                    self.com_signal_file = items{2};
-                elseif strcmp(items{1}, 'signal_write_done')
-                    self.com_signal_write_done = items{2};
-                elseif strcmp(items{1}, 'matlab_init_done')
-                    self.com_matlab_init_done = items{2};
-                end
-
+                self.com.(items{1}) = items{2};
+%                 if strcmp(items{1}, 'net')
+%                     self.com_net_file = items{2};
+%                 elseif strcmp(items{1}, 'net_write_done')
+%                     self.com_net_write_done = items{2};
+%                 elseif strcmp(items{1}, 'data')
+%                     self.com_data_file = items{2};
+%                 elseif strcmp(items{1}, 'data_write_done')
+%                     self.com_data_write_done = items{2};
+%                 elseif strcmp(items{1}, 'signal')
+%                     self.com_signal_file = items{2};
+%                 elseif strcmp(items{1}, 'signal_write_done')
+%                     self.com_signal_write_done = items{2};
+%                 elseif strcmp(items{1}, 'matlab_init_done')
+%                     self.com_matlab_init_done = items{2};
+%                 end
             end
             
         end
@@ -206,36 +210,31 @@ classdef rampController < handle
             
             % wait for the network parameter files from CORSIM
             disp('Waiting for AIMSUN network information...');
-            while (~exist(self.com_net_write_done,'file'))
+            while (~exist(self.com.net_write_done,'file'))
                 pause(0.1);     % wait 0.5 second
             end
             disp('Got AIMSUN network information...');
             
-            % remove flag file
-            % should be deleted, keep here for debugging purpose
-            delete(self.com_net_write_done);
-            
-            disp('Done read AIMSUN network information!');
-            
             % set up the network
-            self.net = initNetwork_MPC();
+            self.net = initNetwork();
             
             % parse and set up the network.
-            content = self.readTextFile(self.com_net_file);
+            content = self.readTextFile(self.com.net);
             for line = content
                 
-                items = strsplit(line, ';');
+                items = strsplit(line{1}, ';');
                 
                 % if it is a link
                 if strcmp(items{1},'link')
                     
-                    % build a parameter struct
+                    % build a parameter struct from file
+                    % all unit in meters and seconds, exept lengthKM in KM
                     tmp_para = struct;
                     
                     % parse each property
                     for i = 2:length(items)
                         
-                        tup = strsplit(items{i});
+                        tup = strsplit(items{i}, ',');
                         
                         if strcmp(tup{1},'link_id')
                             link_id = str2double(tup{2});
@@ -260,20 +259,19 @@ classdef rampController < handle
                         elseif strcmp(tup{1}, 'v_max')
                             tmp_para.v_max = str2double(tup{2});
                         end
-                        
-                        % initialize the link in the net
-                        self.net.addLink( link_id,tmp_para,...
+                    end
+                    
+                     % initialize the link in the net
+                    self.net.addLink( link_id,tmp_para,...
                                           num_lanes,len_km,...
                                           link_type)
-                        
-                    end
                     
                 elseif strcmp(items{1},'junc')    
                     % if it is a junction
                     % parse each property
                     for i = 2:length(items)
                         
-                        tup = strsplit(items{i});
+                        tup = strsplit(items{i}, ',');
                         
                         if strcmp(tup{1}, 'junc_id')
                             junc_id = str2double(tup{2});
@@ -304,9 +302,11 @@ classdef rampController < handle
                 end
                 
             end
+            
+            % delete(self.com.net_write_done);
+            disp('Done read AIMSUN network information!');
       
         end
-        
         
         
         
@@ -314,6 +314,9 @@ classdef rampController < handle
         % read historical boundary flow data
         % input:
         %       % data_file, the historical data file name
+        %       % each row: 
+        %           link_id,up/downstream,time (s),flow (veh/hr),speed
+        %           (miles/hr)
         % output: saved in property historical_data
         %       % struct; his_data.link_1 fields: t, q_us, q_ds,
         %         v_us, v_ds
@@ -327,7 +330,7 @@ classdef rampController < handle
             for line = content
                 
                 % items = [link_id, link_bound, time, flow, speed]
-                items = strsplit(line, ',');
+                items = strsplit(line{1}, ',');
                 
                 linkStr = sprintf('link_%d', str2double(items{1}));
                 
@@ -354,8 +357,14 @@ classdef rampController < handle
                         len = 0;
                     end
                     his_data.(linkStr).t_us(len+1,1) = str2double(items{3});
-                    his_data.(linkStr).q_us(len+1,1) = str2double(items{4});
-                    his_data.(linkStr).v_us(len+1,1) = str2double(items{5});
+                    his_data.(linkStr).q_us(len+1,1) = str2double(items{4})/3600;
+                    
+                    % the speed is optional
+                    if length(items) == 5
+                        his_data.(linkStr).v_us(len+1,1) = str2double(items{5})*1609/3600;
+                    else
+                        his_data.(linkStr).v_us(len+1,1) = NaN;
+                    end
                     
                 elseif strcmp(items{2}, 'downstream')
                     
@@ -369,9 +378,15 @@ classdef rampController < handle
                         len = 0;
                     end
                     his_data.(linkStr).t_ds(len+1,1) = str2double(items{3});
-                    his_data.(linkStr).q_ds(len+1,1) = str2double(items{4});
-                    his_data.(linkStr).v_ds(len+1,1) = str2double(items{5});
+                    his_data.(linkStr).q_ds(len+1,1) = str2double(items{4})/3600;
                     
+                    % the speed is optional
+                    if length(items) == 5
+                        his_data.(linkStr).v_ds(len+1,1) = str2double(items{5})*1609/3600;
+                    else
+                        his_data.(linkStr).v_ds(len+1,1) = NaN;
+                    end
+                                        
                 end
                 
             end
@@ -395,10 +410,10 @@ classdef rampController < handle
         %       warming_up_time: the desired length of warming up time
         function warmUp(self, warming_up_time)
             
-            self.t_warm_up = warming_up_time;
+            self.dt_warm_up = warming_up_time;
             
             % wait until the warm up period has passed
-            while self.t_now <= self.t_warm_up
+            while self.t_now < self.dt_warm_up
                 
                 % Wating for the new data
                 while ~self.getNewData();
@@ -406,7 +421,7 @@ classdef rampController < handle
                 end
                 
                 % got the new data; all data read and set in getNewData()
-                % so do nothign here.
+                % so do nothing here.
                 
             end
             
@@ -420,24 +435,25 @@ classdef rampController < handle
         % 2. return true if new data available
         % 3. if new data avaliable, it will update the database in the 
         %    properties measurement_data, past_period_data
+        % 4. It will update self.t_now to the latest time stamp
         function TF = getNewData(self)
             
-            if ~exist(self.com_data_write_done,'file')
+            if ~exist(self.com.data_write_done,'file')
                 % no new data
                 TF = false;
                 
             else
                 % otherwise we got new data;
                 % parse them and save in corresponding properties
-                delete(self.com_data_write_done);
-                content = self.readTextFile(self.com_data_file);
-                delete(self.com_data_file);
+                delete(self.com.data_write_done);
+                content = self.readTextFile(self.com.data);
+                delete(self.com.data);
                 
                 % parse each line into numerical values
                 for line = content
                     
                     % items = [link_id, link_bound, time, flow, speed]
-                    items = strsplit(line, ',');
+                    items = strsplit(line{1}, ',');
                     
                     linkStr = sprintf('link_%d', str2double(items{1}));
                     
@@ -464,10 +480,19 @@ classdef rampController < handle
                             len = 0;
                         end
                         
-                        self.all_measurement_data.(linkStr).t_us(len+1,1) = str2double(items{3});
-                        self.all_measurement_data.(linkStr).q_us(len+1,1) = str2double(items{4});
-                        self.all_measurement_data.(linkStr).v_us(len+1,1) = str2double(items{5});
+                        self.all_measurement_data.(linkStr).t_us(len+1,1) = str2double(items{3});                        
+                        % The flow in data is veh/hr, convert to veh/s for
+                        % internal use
+                        self.all_measurement_data.(linkStr).q_us(len+1,1) = str2double(items{4})/3600;
                         
+                        % speed is optional
+                        if length(items) == 5
+                            self.all_measurement_data.(linkStr).v_us(len+1,1) = str2double(items{5})*1609/3600;
+                        else
+                            self.all_measurement_data.(linkStr).v_us(len+1,1) = NaN;
+                        end
+                            
+                            
                     elseif strcmp(items{2}, 'downstream')
                         
                         if isfield(self.all_measurement_data.(linkStr), 't_ds')
@@ -480,19 +505,28 @@ classdef rampController < handle
                             len = 0;
                         end
                         
-                        self.all_measurement_data.(linkStr).t_ds(len+1,1) = str2double(items{3});
-                        self.all_measurement_data.(linkStr).q_ds(len+1,1) = str2double(items{4});
-                        self.all_measurement_data.(linkStr).v_ds(len+1,1) = str2double(items{5});
+                        self.all_measurement_data.(linkStr).t_ds(len+1,1) = str2double(items{3});                        
+                        self.all_measurement_data.(linkStr).q_ds(len+1,1) = str2double(items{4})/3600;
+                        
+                        % speed is optional
+                        if length(items) == 5
+                            self.all_measurement_data.(linkStr).v_ds(len+1,1) = str2double(items{5})*1609/3600;
+                        else
+                            self.all_measurement_data.(linkStr).v_ds(len+1,1) = NaN;
+                        end
                         
                     end
                     
                 end
                 
-                % the past period start end time
-                self.t_now = max(self.all_measurement_data.(linkStr).t_us,...
-                               self.all_measurement_data.(linkStr).t_ds);
-                t_past_period_start = max(0, self.t_now - self.dt_past);
-                t_predict_period_end = min(self.t_now + self.dt_predict, self.t_horizon_end);
+                
+                
+                % update the current time, the sim start and end time.
+                self.t_now = max([self.all_measurement_data.(linkStr).t_us;...
+                               self.all_measurement_data.(linkStr).t_ds]);
+                           
+                self.t_sim_start = max(0, self.t_now - self.dt_past);
+                self.t_sim_end = min(self.t_now + self.dt_predict, self.t_horizon_end);
                            
                 % update the past_period_data and predict_period_data
                 for link = self.net.link_labels'
@@ -504,7 +538,7 @@ classdef rampController < handle
                        isfield(self.all_measurement_data.(linkStr), 't_us')
                         % if we have those measurement data, then save them
                         % in the past period data property
-                        index_past = self.all_measurement_data.(linkStr).t_us > t_past_period_start &...
+                        index_past = self.all_measurement_data.(linkStr).t_us > self.t_sim_start &...
                                      self.all_measurement_data.(linkStr).t_us <= self.t_now;
                         self.past_period_data.(linkStr).t_us =...
                             self.all_measurement_data.(linkStr).t_us(index_past);
@@ -518,7 +552,7 @@ classdef rampController < handle
                     if isfield(self.all_measurement_data, linkStr) && ...
                        isfield(self.all_measurement_data.(linkStr), 't_ds')
                         
-                        index_past = self.all_measurement_data.(linkStr).t_ds > t_past_period_start &...
+                        index_past = self.all_measurement_data.(linkStr).t_ds > self.t_sim_start &...
                                      self.all_measurement_data.(linkStr).t_ds <= self.t_now;
                         self.past_period_data.(linkStr).t_ds =...
                             self.all_measurement_data.(linkStr).t_ds(index_past);
@@ -535,29 +569,38 @@ classdef rampController < handle
                         % if we have those measurement data, then save them
                         % in the past period data property
                         index_predict = self.historical_data.(linkStr).t_us > self.t_now &...
-                                        self.historical_data.(linkStr).t_us <= t_predict_period_end;
+                                        self.historical_data.(linkStr).t_us < self.t_sim_end;
+                        last_index = find( self.historical_data.(linkStr).t_us >= self.t_sim_end, 1 );
+                        % t_us(end) must be self.t_sim_end
                         self.predict_period_data.(linkStr).t_us =...
-                            self.historical_data.(linkStr).t_us(index_predict);
+                            [self.historical_data.(linkStr).t_us(index_predict);...
+                             self.t_sim_end];
                         self.predict_period_data.(linkStr).q_us =...
-                            self.historical_data.(linkStr).q_us(index_predict);
+                            [self.historical_data.(linkStr).q_us(index_predict);...
+                             self.historical_data.(linkStr).q_us(last_index)];
                         self.predict_period_data.(linkStr).v_us =...
-                            self.historical_data.(linkStr).v_us(index_predict);
+                            [self.historical_data.(linkStr).v_us(index_predict);...
+                             self.historical_data.(linkStr).v_us(last_index)];
                     end
                     
-                    % save the upstream predict period data from the
+                    % save the downstream predict period data from the
                     % historical data set
                     if isfield(self.historical_data, linkStr) && ...
                        isfield(self.historical_data.(linkStr), 't_ds')
                         % if we have those measurement data, then save them
                         % in the past period data property
                         index_predict = self.historical_data.(linkStr).t_ds > self.t_now &...
-                                        self.historical_data.(linkStr).t_ds <= t_predict_period_end;
+                                        self.historical_data.(linkStr).t_ds <= self.t_sim_end;
+                        last_index = find( self.historical_data.(linkStr).t_ds >= self.t_sim_end, 1 );
                         self.predict_period_data.(linkStr).t_ds =...
-                            self.historical_data.(linkStr).t_ds(index_predict);
+                            [self.historical_data.(linkStr).t_ds(index_predict);...
+                             self.t_sim_end];
                         self.predict_period_data.(linkStr).q_ds =...
-                            self.historical_data.(linkStr).q_ds(index_predict);
+                            [self.historical_data.(linkStr).q_ds(index_predict);...
+                             self.historical_data.(linkStr).q_ds(last_index)];
                         self.predict_period_data.(linkStr).v_ds =...
-                            self.historical_data.(linkStr).v_ds(index_predict);
+                            [self.historical_data.(linkStr).v_ds(index_predict);...
+                             self.historical_data.(linkStr).v_ds(last_index)];
                     end
                     
                     
@@ -573,142 +616,179 @@ classdef rampController < handle
         
         
         %===============================================================
-        % once data is available, then 
-        % 1. set the boundary grid as t_now-dt_past: t_now+ dt_predict
-        % 2. set the boundary condition in past_period by measurement data
-        % 3. set the boundary conditino in predict_period by historical
-        %    data
+        % once data is available, then for each link
+        % 1. Measurement and historical both availabel, then update
+        % 2. Measurement data available, but historical not available, then
+        %    update measurment data, and evenly discretize predict period
+        %    and set flow as NaN by 30 s
+        % 3. Measurement data not available, but historical data is
+        %    available, then set all as historical data
+        % 4. Neither is available, evenly discretize past and predict
+        %    period by 30 s, data set as []
         function updateBoundaryCondition(self)
             
-            t_past_period_start = max(0, self.t_now - self.dt_past);
+            bound_str_list = {'us', 'ds'};
             
             for link = self.net.link_labels'
                 
                 linkStr = sprintf('link_%d', link);
-                % set the upstream
-                if isfield(self.past_period_data, linkStr) && ...
-                   isfield(self.past_period_data.(linkStr), 't_us')
+                
+                % Two boundaries, us, or ds
+                for i = 1:length(bound_str_list)
                     
-                    % t_us are the time stamps of measurement
-                    t_data = [t_past_period_start;...
-                              self.past_period_data.(linkStr).t_us];
-                    tmp_T_us = (t_data(2:end) - t_data(1:end-1));
-                   
-                    if ~isfield(self.historical_data, linkStr) || ...
-                       ~isfield(self.historical_data.(linkStr), 't_us')     
-                        error('ERROR: the historical data for link %d is not set.\n',...
-                            link)
+                    boundStr = bound_str_list{i};
+                    % strings needed
+                    t_bound = strcat('t_', boundStr);
+                    q_bound = strcat('q_', boundStr);   
+                    BC_bound = strcat('BC_', boundStr);  % by tradition, name q as BC
+                    v_bound = strcat('v_', boundStr);
+                    T_bound = strcat('T_', boundStr);
+                    T_bound_cum = strcat('T_', boundStr, '_cum');
+                    
+                    
+                    % If both available
+                    if isfield(self.past_period_data, linkStr) && ...
+                            isfield(self.past_period_data.(linkStr), t_bound) && ...
+                            isfield(self.predict_period_data, linkStr) && ...
+                            isfield(self.predict_period_data.(linkStr), t_bound)
+                    
+                        % meas_data during self.t_sim_start : self.t_now
+                        % t_bound are the time stamps of measurement
+                        t_meas = [self.t_sim_start;...
+                            self.past_period_data.(linkStr).(t_bound)];
+                        T_meas = (t_meas(2:end) - t_meas(1:end-1));
+                        
+                        % compute the duration of each time step
+                        t_his = [self.t_now;...
+                            self.predict_period_data.(linkStr).(t_bound)];
+                        T_his = t_his(2:end) - t_his(1:end-1);
+                        
+                        self.net.network_hwy.(linkStr).(T_bound) = [T_meas;T_his];
+                        
+                        % the relative starting time of each roll is 0.
+                        self.net.network_hwy.(linkStr).(T_bound_cum) = [0;...
+                            cumsum(self.net.network_hwy.(linkStr).(T_bound))];
+                        
+                        % the boundary flow measurement
+                        self.net.network_hwy.(linkStr).(BC_bound) = ...
+                            [self.past_period_data.(linkStr).(q_bound);...
+                             self.predict_period_data.(linkStr).(q_bound)];
+                         
+                        % the velocity measurement
+                        self.net.network_hwy.(linkStr).(v_bound) = ...
+                            [self.past_period_data.(linkStr).(v_bound);...
+                             self.predict_period_data.(linkStr).(v_bound)];  
+                    
+                    % If historical data is not available; and measurement
+                    % data is available
+                    elseif isfield(self.past_period_data, linkStr) && ...
+                            isfield(self.past_period_data.(linkStr), t_bound) && ...
+                            (~isfield(self.predict_period_data, linkStr) || ...
+                             ~isfield(self.predict_period_data.(linkStr), t_bound))
+                        
+                        % meas_data during self.t_sim_start : self.t_now
+                        % t_bound are the time stamps of measurement
+                        t_meas = [self.t_sim_start;...
+                            self.past_period_data.(linkStr).(t_bound)];
+                        T_meas = (t_meas(2:end) - t_meas(1:end-1));
+                        
+                        % evenly discretize the time for historical data
+                        t_his = self.t_now: 30 : self.t_sim_end;
+                        t_his = unique([t_his'; self.t_sim_end]);
+                        T_his = t_his(2:end) - t_his(1:end-1);
+                        
+                        self.net.network_hwy.(linkStr).(T_bound) = [T_meas;T_his];
+                        
+                        % the relative starting time of each roll is 0.
+                        self.net.network_hwy.(linkStr).(T_bound_cum) = [0;...
+                            cumsum(self.net.network_hwy.(linkStr).(T_bound))];
+                        
+                        % the boundary flow measurement
+                        self.net.network_hwy.(linkStr).(BC_bound) = ...
+                            [self.past_period_data.(linkStr).(q_bound);...
+                             ones(length(T_his),1)*NaN];
+                         
+                        % the velocity measurement
+                        self.net.network_hwy.(linkStr).(v_bound) = ...
+                            [self.past_period_data.(linkStr).(v_bound);...
+                             ones(length(T_his),1)*NaN];  
+                        
+                    % If measurement data is not available and historical
+                    % data is available
+                    elseif  (~isfield(self.past_period_data, linkStr) || ...
+                            ~isfield(self.past_period_data.(linkStr), t_bound)) && ...
+                            (isfield(self.predict_period_data, linkStr) && ...
+                             isfield(self.predict_period_data.(linkStr), t_bound))
+                        
+                        % get all data from historical data set
+                        index_sim = self.historical_data.(linkStr).(t_bound) > self.t_sim_start &...
+                                        self.historical_data.(linkStr).(t_bound) < self.t_sim_end;
+                        
+                        last_index = find(self.historical_data.(linkStr).(t_bound) >= self.t_sim_end,1);
+                        
+                        T_sim = [self.t_sim_start; ...
+                                 self.historical_data.(linkStr).(t_bound)(index_sim);...
+                                 self.t_sim_end];
+                        
+                        % the time discretization
+                        self.net.network_hwy.(linkStr).(T_bound) = ...
+                            T_sim(2:end) - T_sim(1:end-1);
+                        self.net.network_hwy.(linkStr).(T_bound_cum) = [0;...
+                            sumcum(self.net.netwoek_hwy.(linkStr).(T_bound))];
+                        
+                        % the boundary flow measurement  
+                        self.net.network_hwy.(linkStr).(BC_bound) = ...
+                            [self.historical_data.(linkStr).(q_bound)(index_sim);
+                            self.historical_data.(linkStr).(q_bound)(last_index)];
+                        
+                        % the velocity measurement
+                        self.net.network_hwy.(linkStr).(v_bound) = ...
+                            [self.historical_data.(linkStr).(v_bound)(index_sim);
+                            self.historical_data.(linkStr).(v_bound)(last_index)];
+                       
+                        
+                    % If neither is available
+                    elseif  (~isfield(self.past_period_data, linkStr) || ...
+                            ~isfield(self.past_period_data.(linkStr), t_bound)) && ...
+                            (~isfield(self.predict_period_data, linkStr) || ...
+                             ~isfield(self.predict_period_data.(linkStr), t_bound))
+                        
+                        % Evenly discretize the simulation period by 30 s
+                        T_sim = self.t_sim_start: 30 : self.t_sim_end;
+                        T_sim = unique([T_sim'; self.t_sim_end]);
+                         
+                        % the time discretization
+                        self.net.network_hwy.(linkStr).(T_bound) = ...
+                            T_sim(2:end) - T_sim(1:end-1);
+                        self.net.network_hwy.(linkStr).(T_bound_cum) = [0;...
+                            sumcum(self.net.netwoek_hwy.(linkStr).(T_bound))];
+                        
+                        % the boundary flow measurement  
+                        self.net.network_hwy.(linkStr).(BC_bound) = [];
+                        
+                        % the velocity measurement
+                        self.net.network_hwy.(linkStr).(v_bound) = [];
+                                                
                     end
-                    
-                    % compute the duration of each time step
-                    t_data = [self.t_now;...
-                              self.historical_data.(linkStr).t_us];
-                    
-                    self.net.network_hwy.(linkStr).T_us = [tmp_T_us;...
-                        (t_data(2:end) - t_data(1:end-1))];
-                    
-                    % the relative starting time of each roll is 0.
-                    self.net.network_hwy.(linkStr).T_us_cum = [0;...
-                        cumsum(self.net.network_hwy.(linkStr).T_us)];
-                    
-                    % the boundary flow measurement
-                    tmp_q_us = self.past_period_data.(linkStr).q_us;
-                   
-                    if ~isfield(self.historical_data, linkStr) || ...
-                       ~isfield(self.historical_data.(linkStr), 'q_us')     
-                        error('ERROR: the historical data for link %d is not set.\n',...
-                            link)
-                    end
-                    
-                    self.net.network_hwy.(linkStr).q_us = [tmp_q_us;...
-                         self.historical_data.(linkStr).q_us];
-                     
-                    % the velocity measurement
-                    tmp_v_us = self.past_period_data.(linkStr).v_us;
-                   
-                    if ~isfield(self.historical_data, linkStr) || ...
-                       ~isfield(self.historical_data.(linkStr), 'v_us')     
-                        error('ERROR: the historical data for link %d is not set.\n',...
-                            link)
-                    end
-                    
-                    self.net.network_hwy.(linkStr).v_us = [tmp_v_us;...
-                         self.historical_data.(linkStr).v_us];
-                     
-                else
-                    % this boundary does not have detector
-                    % simply set the data as []. The discretization grid
-                    % will be T_junc which will be set by function
-                    % updateBoundaryGrid()
-                    self.net.network_hwy.(linkStr).T_us = [];
-                    self.net.network_hwy.(linkStr).T_us_cum = [];
-                    self.net.network_hwy.(linkStr).q_us = [];
-                    self.net.network_hwy.(linkStr).v_us = [];
+   
                 end
                 
+ 
                 
-                % set the downstream boundary condition
-                if isfield(self.past_period_data, linkStr) && ...
-                   isfield(self.past_period_data.(linkStr), 't_ds')
-                    % boundary data is available
-                    
-                    % t_us are the time stamps of measurement
-                    t_data = [t_past_period_start;...
-                              self.past_period_data.(linkStr).t_ds];
-                    tmp_T_ds = (t_data(2:end) - t_data(1:end-1));
-                   
-                    if ~isfield(self.historical_data, linkStr) || ...
-                       ~isfield(self.historical_data.(linkStr), 't_ds')     
-                        error('ERROR: the historical data for link %d is not set.\n',...
-                            link)
-                    end
-                    
-                    % compute the duration of each time step
-                    t_data = [self.t_now;...
-                              self.historical_data.(linkStr).t_ds];
-                    
-                    self.net.network_hwy.(linkStr).T_ds = [tmp_T_ds;...
-                        (t_data(2:end) - t_data(1:end-1))];
-                    
-                    % the relative starting time of each roll is 0.
-                    self.net.network_hwy.(linkStr).T_ds_cum = [0;...
-                        cumsum(self.net.network_hwy.(linkStr).T_ds)];
-                    
-                    % the boundary flow measurement
-                    tmp_q_ds = self.past_period_data.(linkStr).q_ds;
-                   
-                    if ~isfield(self.historical_data, linkStr) || ...
-                       ~isfield(self.historical_data.(linkStr), 'q_ds')     
-                        error('ERROR: the historical data for link %d is not set.\n',...
-                            link)
-                    end
-                    
-                    self.net.network_hwy.(linkStr).q_ds = [tmp_q_ds;...
-                         self.historical_data.(linkStr).q_ds];
-                     
-                    % the velocity measurement
-                    tmp_v_ds = self.past_period_data.(linkStr).v_ds;
-                   
-                    if ~isfield(self.historical_data, linkStr) || ...
-                       ~isfield(self.historical_data.(linkStr), 'v_ds')     
-                        error('ERROR: the historical data for link %d is not set.\n',...
-                            link)
-                    end
-                    
-                    self.net.network_hwy.(linkStr).v_ds = [tmp_v_ds;...
-                         self.historical_data.(linkStr).v_ds];
-                     
-                else
-                    % this boundary does not have detector
-                    % simply set the data as []. The discretization grid
-                    % will be T_junc which will be set by function
-                    % updateBoundaryGrid()
-                    self.net.network_hwy.(linkStr).T_ds = [];
-                    self.net.network_hwy.(linkStr).T_ds_cum = [];
-                    self.net.network_hwy.(linkStr).q_ds = [];
-                    self.net.network_hwy.(linkStr).v_ds = [];
-                end
+            end
+            
+            % also need to update the junction grid
+            for junc = self.net.junc_labels'
                 
+                juncStr = sprintf('junc_%d', junc);
+                inlink = self.net.network_junc.(juncStr).inlabel(1);
+                linkStr = sprintf('link_%d', inlink);
+                
+                % copy the link discretization here
+                self.net.network_junc.(juncStr).T = ...
+                    self.net.network_hwy.(linkStr).T_ds;
+                self.net.network_junc.(juncStr).T_cum = ...
+                    self.net.network_hwy.(linkStr).T_ds_cum;
                 
             end
             
@@ -719,14 +799,22 @@ classdef rampController < handle
         
         %===============================================================
         % update the grid of junctions to decrease the discretization
-        % error. T_junc need to be updated both in network_jun and
+        % error. T_grid need to be updated both in network_jun and
         % network_hwy
         % input:
         %       T_grid: struct; link_1, the duration of each step
-        %       T_grid.link_1.T_us or T_grid.link_1.T_ds
-        %       T_grid.junc_1.T
+        %           T_grid.link_1.T_us or T_grid.link_1.T_ds
+        %           T_grid.junc_1.T
         function updateBoundaryGrid(self, T_grid)
             
+            % if T_grid is [], simply return
+            % The grid has been set by updateBoundaryConditions
+            if isempty(T_grid)
+                
+                return
+                
+            end
+                        
             % iterate each field and set the corresponding junc or link
             fields = fieldnames(T_grid);
             for i = 1:lentgh(fields)
@@ -780,7 +868,9 @@ classdef rampController < handle
         
         %===============================================================
         % update the initial condition of the links, in net property.
-        % 1. At t = 0, IC can be left [], so no data constraints
+        % 1. At t = 0, IC can be left [], so no data constraints, this
+        %    code will automatically discretize the link evenly to cells
+        %    around 200 m
         % 2. Otherwise, IC need to be extracted from density estimation,
         %    which is implemented in postSolution class. NOTE, the IC is
         %    normalized value to kc on each link.
@@ -790,6 +880,30 @@ classdef rampController < handle
         %                               normalized to kc
         function updateInitialCondition(self, init_condition)
             
+            % if is nan, then evenly discretize each link into cells with
+            % length around 200 m. Data will be set as NaN.
+            if isempty(init_condition)
+                
+                for link = self.net.link_labels'
+                    
+                    linkStr = sprintf('link_%d', link);
+                    
+                    % the number of segments of around 200 m length
+                    num_seg = ceil(self.net.network_hwy.(linkStr).para_postkm*1000/200);
+                    
+                    tmp_dx = self.net.network_hwy.(linkStr).para_postkm*1000/num_seg;
+                    self.net.network_hwy.(linkStr).X_grid_cum = (0:num_seg)'*tmp_dx;
+                    
+                    % set the density data as NaN
+                    self.net.network_hwy.(linkStr).IC = ones(num_seg,1)*NaN;
+                    
+                end
+                
+                return
+                
+            end
+            
+            % Otherwise, update the initial conditions
             fields = fieldnames(init_condition);
             
             % warning: the initial condition of some links is not provided
@@ -821,26 +935,144 @@ classdef rampController < handle
         
         
         
+        %===============================================================
+        % This function applies the optimal control which is the optimal
+        % continuous boundary flow
+        % 1. AIMSUN meter takes flow parameters as the control input
+        %    veh/hr. It actually approximate the flow using green red light.
+        % 2. We need to make sure the flow is approximated right before
+        %    changing the flow. E.g. 72 veh/hr is approximated by 49 s red
+        %    and 1 s flash green. 
+        % 3. It takes account of the realtime computation time. Only the 
+        %    the control after t_now + dt_computation is applied  
+        % 4. It saves the control signal in the format for AIMSUN to read
+        %    start_time (s), duration (s), flow (veh/hr)
+        % 5. AIMSUN is preset the flow in [0,900] veh/hr
+        % input:
+        %       x: the CP solution
+        %       dt_computation: the computation time before applying the
+        %           control
+        %       dv_index: the decision variable index for exracting flow
+        % output: the all_signal and signal_to_apply property will be
+        %       updated
+        %         the signal_to_apply will be written in file
+        function applyControlByFlow(self, x, dt_computation, dv_index)
+                        
+            % for each link, update control signal
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % if it is onramp, then control downstream flow
+                if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
+                
+                    T_cum = self.net.network_hwy.(linkStr).T_ds_cum +...
+                            self.t_sim_start;
+                    
+                    % round up the time.
+                    t_signal_start = self.t_now + dt_computation;
+                    
+                    % find the continous flow from x                
+                    index_flow = T_cum(2:end) > t_signal_start;
+                    tmp_flow = x(dv_index.(linkStr).downstream(1,1):...
+                                 dv_index.(linkStr).downstream(2,1));
+                    signal_flow = tmp_flow(index_flow);
+                    
+                    % find the setting time of each signal flow
+                    tmp_setting_time = [t_signal_start;
+                                           T_cum(T_cum > t_signal_start)];
+                    signal_setting_time = tmp_setting_time(1:end-1);
+                    signal_duration = tmp_setting_time(2:end) - tmp_setting_time(1:end-1);
+                                
+                    % discretize the signal into cycles
+                    self.signal_to_apply = [signal_setting_time, ...
+                                            signal_duration,...
+                                            signal_flow];                
+                    
+                    % update all_signal property
+                    if isempty(self.all_signal)
+                        self.all_signal = self.signal_to_apply;
+                    else
+                        self.all_signal( self.all_signal(:,1) >= t_signal_start, :) = [];
+                        self.all_signal = [self.all_signal; self.signal_to_apply];
+                    end
+                                            
+                elseif strcmp(self.net.network_hwy.(linkStr).para_linktype, 'offramp')  
+                    
+                    % we have not defined an offramp actuator
+                    error('ERROR: Offramp actuator not defined yet.\n')
+                    
+                end
+                                
+                
+                
+            end
+            
+            % write signal to file
+            % First check if previous signal file was read by AIMSUN. If read, 
+            % AIMSUN will delete signal file. Otherwise wait for AIMSUN. 
+            tmp_counter = 0;
+            while exist(self.com.signal,'file')
+                if tmp_counter == 10
+                    disp('Wait for AIMSUN to read the previous signal...\n')
+                    tmp_counter = 0;
+                end
+                
+                pause(0.1)    % wait in second
+            end
+            
+            disp('Writing signals...\n')
+            
+            fileID = fopen(self.com.signal,'w');
+            
+            % write header
+            % fprintf(fileID,'#signal_setting_time,cycle_duration,signal_value(green-0,red-1)\n');
+            
+            % write signal
+            % NOTE: fprintf writes each column of the matrix as a row in
+            % file, hence transpose the matrix.
+            fprintf(fileID,'%.2f,%.2f,%d\n',(self.signal_to_aply)');
+            
+            fclose(fileID);
+            
+            % write the flag file
+            fileID = fopen(self.com.signal_write_done,'w');
+            fprintf(fileID,'write done');
+            fclose(fileID);
+            disp('Finished writing signals.\n')
+            
+            
+        end
+        
+        
+        
         
         %===============================================================
-        % This function applies the optimal control 
-        % 1. It converts the continuous control output to discrete 
-        % control signals (e.g. gree-red)
-        % 2. It takes account of the realtime computation time. Only the 
+        % This function applies the optimal control which is discretized to
+        % cycles.
+        % 1. AIMSUN meter takes flow parameters as the control input
+        %    veh/hr. It actually approximate the flow using green red light.
+        % 2. We need to make sure the flow is approximated right before
+        %    changing the flow. E.g. 72 veh/hr is approximated by 49 s red
+        %    and 1 s flash green. 
+        % 3. It takes account of the realtime computation time. Only the 
         %    the control after t_now + dt_computation is applied  
-        % 3. It saves the control signal in the format for AIMSUN to read
+        % 4. It saves the control signal in the format for AIMSUN to read
+        %    start_time (s), duration (s), flow (veh/hr)
+        % 5. AIMSUN is preset the flow in [0,900] veh/hr
         % input:
         %       x: the CP solution
         %       links: int column vector; the links we would like to
         %           control
-        %       dt_cycle: the desired duration of each control status. 
-        %           Boundary flow will be discretized in to cycles.
+        %       dt_cycle: the control signal cycle. a new signal is set at 
+        %           cycle 
         %       dt_computation: the computation time before applying the
         %           control
         % output: the all_signal and signal_to_apply property will be
         %       updated
         %         the signal_to_apply will be written in file
-        function applyControl(self, links, x, dt_cycle, dt_computation)
+        % DO NOT USE.
+        function applyControlByCycle(self, links, x, dt_cycle, dt_computation)
                         
             % for each link, update control signal
             for link = links'
@@ -919,9 +1151,12 @@ classdef rampController < handle
         
         
         
-        % Discretize the boundary flow into cycles. This function need to
-        % be implemented after we get an idea how the ramp meter works in
-        % AIMSUN.
+        % Discretize the boundary flow into cycles. 
+        % At each cycle, we specify a new flow 
+        % input: 
+        %       signal_setting_time: nx1 vector, the set time of signal
+        %       signal_flow: nx1 vector the flow (veh/s)
+        %       dt_cycle: the cycle length
         function discretizeSignal(self, signal_setting_time, signal_flow, ...
                                     dt_cycle)
             
@@ -939,13 +1174,28 @@ classdef rampController < handle
             
             % tell AIMSUN that the initialization of MATLAB is done, start
             % simulation
-            dlmwrite(self.com_matlab_init_done, [], ';');
-            fID = fopen(self.com_matlab_init_done);
+            dlmwrite(self.com.matlab_init_done, [], ';');
+            fID = fopen(self.com.matlab_init_done);
             fclose(fID);
             
         end
         
         
+        %===============================================================
+        % This function checks if the simulation in AIMSUN is completed.
+        % output:
+        %       True/False
+        function TF = simulationCompleted(self)
+            
+            if exist(self.com.simulation_completed,'file')
+                TF = true;
+                return
+            else
+                TF = false;
+                return
+            end
+            
+        end
         
         
         
@@ -958,7 +1208,7 @@ classdef rampController < handle
         %       filename: the filename to be read
         % output: 
         %       conten: cell of strings with each line as a string
-        function content = readTextFile(self, filename)
+        function content = readTextFile(~, filename)
             
             content = {};
             lineCounter = 0;
@@ -967,12 +1217,12 @@ classdef rampController < handle
                 error('File %s does not exist.\n', filename)
             end
             
-            fid = fopen('test.txt');
+            fid = fopen(filename,'r');
             
             tline = fgetl(fid);
             while ischar(tline)
                 
-                if strcmp(tline(1),'%')
+                if strcmp(tline(1),'%') || strcmp(tline(1),'#')
                     % comment line, ignore and continue 
                     tline = fgetl(fid);
                     continue
