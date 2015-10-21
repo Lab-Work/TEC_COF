@@ -6,7 +6,7 @@
 % the concatenated 1->2, and right is the 1->3 (merge).
 
 
-function [C,h] =LH_plot2D_junc(varargin)
+function [ax1,ax2] =LH_plot2D_junc(varargin)
 
 if nargin==11
     % merge or diverge, plot two figures
@@ -22,7 +22,7 @@ if nargin==11
     kRight = varargin{10};
     junc = varargin{11};
     
-    subplot(1,2,1)
+    ax1 = subplot(1,2,1);
     contourf(tScale, xScaleLeft, kLeft',64,'LineColor', 'none')
     caxis([0 1]);
     hold on
@@ -58,7 +58,7 @@ if nargin==11
     hold off;
     
     
-    subplot(1,2,2)
+    ax2 = subplot(1,2,2);
     contourf(tScale, xScaleRight, kRight',64,'LineColor', 'none')
     caxis([0 1]);
     hold on
@@ -109,6 +109,8 @@ elseif nargin==8
     kComb = varargin{7};
     junc = varargin{8};
     
+    ax1 = figure;
+    ax2 = NaN;
     contourf(tScale, xScaleComb, kComb',64,'LineColor', 'none')
     caxis([0 1]);
     hold on

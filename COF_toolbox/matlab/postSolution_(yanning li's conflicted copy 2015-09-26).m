@@ -50,10 +50,6 @@ classdef postSolution < handle
         % determing which boundary conditions we should use to compute the
         % sending and receiving function.
         t_ref;
-        
-        % the queue limit on each link; just used for visualization
-        % struct, .(linkStr): in meters from downstream
-        queue_limit;
 
         % set the maximal seartch depth of the recursive function for searching
         % the intersections
@@ -71,8 +67,7 @@ classdef postSolution < handle
         %       dv_index: the decision varialbe struct
         %       end_time: end time of the simulation
         %       dx_res/dt_res: float, resolution for visualization
-        %       queue_limit: struct, .(linkStr) limit of queue in meters
-        function self=postSolution(x, net, dv_index, end_time, dx_res, dt_res, queue_limit)
+        function self=postSolution(x, net, dv_index, end_time, dx_res, dt_res)
             
             self.x = x;
             self.dv_index = dv_index;
@@ -80,10 +75,10 @@ classdef postSolution < handle
             self.t_end_sim = end_time;
             self.dx_res = dx_res;
             self.dt_res = dt_res;
-            self.queue_limit = queue_limit;
 
-            % by default, the maximal search depth is 10
-            self.max_search_depth = 10;
+
+            % by default, the maximal search depth is 3
+            self.max_search_depth = 3;
 
 
         end
@@ -245,8 +240,7 @@ classdef postSolution < handle
         % input:
         %       juncs: the column vector of junction labels we want to
         %           plot, each junction will be plot in one seperate figure
-        %       title_str: string with some info to put in the title
-        function plotJuncs(self, juncs, title_str)
+        function plotJuncs(self, juncs)
             
             if strcmp(juncs,'all')
                 juncs = self.net.junc_labels;
@@ -319,44 +313,15 @@ classdef postSolution < handle
                     
                     colormap jet
                     
-                    [ax1, ax2] = LH_plot2D_junc([self.net.network_hwy.(link1).para_postkm*1000,...
+                    [~, ~] = LH_plot2D_junc([self.net.network_hwy.(link1).para_postkm*1000,...
                         self.net.network_hwy.(link2).para_postkm*1000],...
                         self.net.network_junc.(juncStr).T_cum',...
                         length(self.net.network_junc.(juncStr).T), ...
                         self.t_mesh_s, xScaleLeft, xScaleRight,...
                         NLeft, kLeft, NRight, kRight, self.net.network_junc.(juncStr));
-                    h = suptitle(sprintf('Time: %s; Total Flow: %f;\n Number of steps: %d; Penalty: %f',...
-                        title_str, tt_flow, length(self.net.network_junc.(juncStr).T), tt_pen));
-                    set(h,'FontSize',20)
-                    
-                    % plot additional queue limit dash lines
-                    t_line = [self.net.network_junc.(juncStr).T_cum(1),...
-                                  self.net.network_junc.(juncStr).T_cum(end)]';
-                   
-                    hold(ax1, 'on');
-                    if isfield(self.queue_limit, link1)
-                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.queue_limit.(link1);
-                        plot(ax1, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
-                    end
-                    if isfield(self.queue_limit, link3)
-                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
-                                  self.net.network_hwy.(link3).para_postkm*1000 - self.queue_limit.(link3);
-                        plot(ax1, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
-                    end
-                    hold(ax1, 'off');
-                    
-                    hold(ax2,'on');
-                    if isfield(self.queue_limit, link2)
-                        x_queue = self.net.network_hwy.(link2).para_postkm*1000 - self.queue_limit.(link2);
-                        plot(ax2, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
-                    end
-                    if isfield(self.queue_limit, link3)
-                        x_queue = self.net.network_hwy.(link2).para_postkm*1000 + ...
-                                  self.net.network_hwy.(link3).para_postkm*1000 - self.queue_limit.(link3);
-                        plot(ax2, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
-                    end
-                    hold(ax2, 'off');
-                    
+                    h = suptitle(sprintf('Total Flow: %f\n Number of steps: %d \n Penalty: %f',...
+                        tt_flow, length(self.net.network_junc.(juncStr).T), tt_pen));
+                    set(h,'FontSize',24)
                     
                     
                 elseif strcmp(self.net.network_junc.(juncStr).type_junc,'diverge') ||...
@@ -426,8 +391,8 @@ classdef postSolution < handle
                         length(self.net.network_junc.(juncStr).T), ...
                         self.t_mesh_s, xScaleLeft, xScaleRight,...
                         NLeft, kLeft, NRight, kRight,self.net.network_junc.(juncStr));
-                    h = suptitle(sprintf('Time: %s; Total Flow: %f;\n Number of steps: %d; Penalty: %f\n',...
-                        title_str, tt_flow, length(self.net.network_junc.(juncStr).T)), tt_pen);
+                    h = suptitle(sprintf('Total Flow: %f\n Number of steps: %d\nPenalty: %f\n',...
+                        tt_flow, length(self.net.network_junc.(juncStr).T)), tt_pen);
                     set(h,'FontSize',24)
                     
                 elseif strcmp(self.net.network_junc.(juncStr).type_junc,'connection')
@@ -1371,7 +1336,7 @@ classdef postSolution < handle
         % output:
         %       TF: true if three points on one straight line with small
         %           tolerance; otherwise false
-        function TF = onStraightLine(~, x, y)
+        function TF = onStraightLine(self, x, y)
             
             % if a horizontal line
             if abs(x(3)-x(2)) <= 1.0e-10 && abs(x(2)-x(1)) <= 1.0e-6
@@ -2017,8 +1982,7 @@ classdef postSolution < handle
             v_f = self.net.network_hwy.(linkStr).para_vf;
             w = self.net.network_hwy.(linkStr).para_w;    % < 0
             k_c = self.net.network_hwy.(linkStr).para_kc;
-            k_m = self.net.network_hwy.(linkStr).para_km;     
-            len_link = self.net.network_hwy.(linkStr).para_postkm*1000;
+            k_m = self.net.network_hwy.(linkStr).para_km;            
             
             % Get the initial number of vehicles 
             IC(:,1) = self.net.network_hwy.(linkStr).X_grid_cum(1:end-1);
@@ -2396,33 +2360,26 @@ classdef postSolution < handle
         %       density: struct, .(linkStr).X_grid_cum
         %                        .(linkStr).IC
         function density = extractDensity(self, time)
-            
-            % specify the search depth and tolerance
-            search_depth = 0;
-            tol = [1e-3; 1e-2];
-            
+
             % check each link
             for link = self.net.link_labels'
 
                 linkStr = sprintf('link_%d', link);
 
-                len_link = self.net.network_hwy.(linkStr).para_postkm*1000;
+                len_link = self.net.network_hwy.(linkStr).para_postkm;
 
-                pt_found = self.searchShocksOnLine(link, [time; time], ...
-                    [0; len_link], [NaN; NaN], search_depth, tol);
+                pt_found = self.searchShocksOnLine(link, [time; time], [0; len_link]);
 
                 % get the time, position, and vehicle id at two bounds
                 pt_us = [time, 0, self.absVehID(link, time, 0)];
                 pt_ds = [time, len_link, self.absVehID(link, time, len_link)];
 
                 % all the grid points
-                pt_all = [pt_us; pt_found; pt_ds];
-                pt_grid.position = pt_all(:,2);
-                pt_grid.vehicle_id = pt_all(:,3);
+                pt_grid = [pt_us; pt_found; pt_ds];
 
                 % compute the density
                 dx = pt_grid.position(2:end) - pt_grid.position(1:end-1);
-                dM = pt_grid.vehicle_id(1:end-1) - pt_grid.vehicle_id(2:end);
+                dM = pt_grid.vehicle_id(2:end) - pt_grid.vehicle_id(1:end-1);
                 rho = dM./dx;
 
                 % normalize to kc
@@ -2502,7 +2459,7 @@ classdef postSolution < handle
 
             elseif strcmp(wrt, 'position')
                 
-                if pos_interval(2)-pos_interval(1) <= tol(2)
+                if t_interval(2)-t_interval(1) <= tol(1)
                     warning('WARNING: The slope can not be computed\n')
                     slope = NaN;
                     return
@@ -2573,7 +2530,7 @@ classdef postSolution < handle
         %  11 14 NaN;
         %  15 19 1
         %  20 20 2];
-        function indicedGroupValue = groupSameElement(~, k_ori,minlength)
+        function indicedGroupValue = groupSameElement(self, k_ori,minlength)
             
             k_vec = k_ori;
             
@@ -2658,7 +2615,7 @@ classdef postSolution < handle
         % Example:
         % k_trans = mapping(k,[0 k_c; k_c k_m],[0 0.5*k_m; 0.5*k_m k_m]);
         % mapping (0~k_c)(k_c~k_,m) ==> (0~0.5*k_m)(0.5*k_m~k_m)
-        function [k_trans] = mapping(~, k_ori, original_interval, target_interval)
+        function [k_trans] = mapping(self, k_ori, original_interval, target_interval)
             
             k_trans = 0.0*k_ori;
             for i = 1:size(original_interval,1)
@@ -2677,7 +2634,7 @@ classdef postSolution < handle
         % utility function
         % The function compares the min of two values. If one value is NaN, it will
         % return the other value. If both NaN, return NaN.
-        function v = minNonEmpty(~, v1, v2)
+        function v = minNonEmpty(self, v1, v2)
             
             if isempty(v1) && ~isempty(v2)
                 v = min(v2);
@@ -2706,7 +2663,7 @@ classdef postSolution < handle
         %       tol: the tolerance between two unique values.
         % output: 
         %       uniq: the unique values in the array
-        function [uniq] = unique_tol(~, array, tol)
+        function [uniq] = unique_tol(self, array, tol)
             
             uniq = unique(array);
             

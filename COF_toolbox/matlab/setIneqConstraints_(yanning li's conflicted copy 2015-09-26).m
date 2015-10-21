@@ -10,17 +10,15 @@
 %   with the equations in paper. 
 % 3. This version supports different levels of error for the value
 %   conditions.
-% 4. This version supports uneven discretization of the time and space.
+% 4.This version supports uneven discretization of the time and space.
 % 5. This version has full support for the initial condition, the boundary
 %   condition, the internal condition, the density condition. Those
 %   conditions are interacting. Requries quite some effort to fix.
 
 % The index of the variables is
-% [q_us, q_ds, rho_ini, L_traj, r_traj, 
-%  L_dens, rho_dens, L_queue, s_queue...
-%  bool_traj_min, bool_traj_max, 
-%  bool_dens_min, book_dens_max, 
-%  other auxilary variables]
+% [q_us, q_ds, rho_ini, L_traj, r_traj, L_dens, rho_dens,...
+% bool_traj_min, bool_traj_max, bool_dens_min, book_dens_max, 
+% other auxilary variables]
 
 % Description of value conditions:
 % Boundary condition: q_us, q_ds. The boundary flows at upstream and
@@ -43,21 +41,11 @@
 %       decision variables associated with each density condition are the
 %       L_dens, which is the vehicle id at the x_min point; the rho_dens
 %       which is the density in that line segment. 
-% Soft queue limit: L, s. The label of the vehicle at (x,t) and the slack variable.
-%       constriants: L <= M^{us, ds, init}; L = M^us + s; s>=0; min s^2
-%       
 
 
 classdef setIneqConstraints
     
     properties
-        
-        dv_link;     % the index of the link
-                     % .upstream; .downstream; .initial; 
-                     % .internal_L; .internal_r; 
-                     % .density_L; .density_rho;
-                     % .queue_L; .queue_s
-        dv_max;      % keep track of the maximal index
         
         num_us_con;  % num of upstream boundary conditions
         num_ds_con;  % num of downstream boundary conditions
@@ -74,12 +62,6 @@ classdef setIneqConstraints
         % Density conditions is defined by two points on a vertical line,
         % with the density value in between those two points.
         num_density_con;  % num of density conditions
-        
-        % soft queue limit points.
-        % This is not a value condtion, but for posing a soft queue limit
-        % Each pt associates with M and a slack variable s
-        % M <= M_{us, ds, init}, and M = M_us + s, s>=0, penalize s^2
-        num_soft_queue_pt;
         
         v;  % freeflow speed
         w;  % congestion slope
@@ -182,9 +164,6 @@ classdef setIneqConstraints
         %           .IC: column vector, float, initial density 
         %       Traj_con: a struct with fields for trajectory condition
         %       Dens_con: a struct with fields for density condition
-        %       soft_queue_limit: float, the soft limit of the length of
-        %           the queue in meters. Auto set every 30 s; 
-        %           Set value to NaN to disable
         %       error: struct, must have a field e_default
         %              other fields corresponding to each property
         function self = setIneqConstraints(...
@@ -192,79 +171,14 @@ classdef setIneqConstraints
                 start_time, now_time, end_time,...
                 Boundary_con,...
                 Initial_con, Traj_con, Dens_con, ...
-                soft_queue_limit,...
                 errors)            
             
-            self.dv_max = 0;
             self.num_us_con = size(Boundary_con.BC_us,1);   % boundary conditions
-            self.dv_link.upstream = [self.dv_max+1; ...
-                                     self.dv_max+self.num_us_con];
-            self.dv_max = self.dv_max + self.num_us_con;
-            
             self.num_ds_con = size(Boundary_con.BC_ds,1);
-            self.dv_link.downstream = [self.dv_max+1;...
-                                       self.dv_max+self.num_ds_con];
-            self.dv_max = self.dv_max + self.num_ds_con;
-                                   
+            
             self.num_initial_con = size(Initial_con.IC,1);   % initial conditions
-            self.dv_link.initial = [self.dv_max+1;...
-                                    self.dv_max+self.num_initial_con];
-            self.dv_max = self.dv_max + self.num_initial_con;
-            
-            if isfield(Traj_con, 'x_min_traj')
-                self.num_internal_con = length(Traj_con.x_min_traj);
-                % internal L
-                self.dv_link.internal_L = [self.dv_max+1;
-                                       self.dv_max+self.num_internal_con];
-                self.dv_max = self.dv_max + self.num_internal_con;
-                % internal r
-                self.dv_link.internal_r = [self.dv_max+1;
-                                       self.dv_max+self.num_internal_con];
-                self.dv_max = self.dv_max + self.num_internal_con;
-            else
-                self.num_internal_con = 0;     
-                % set as none if no internal conditions
-                self.dv_link.internal_L = [NaN; NaN];   
-                self.dv_link.internal_r = [NaN; NaN];   
-            end
-                        
-            if isfield(Dens_con, 'x_min_dens')
-                self.num_density_con = length(Dens_con.x_min_dens);
-                % density L
-                self.dv_link.density_L = [self.dv_max+1;
-                                          self.dv_max+self.num_density_con];
-                self.dv_max = self.dv_max + self.num_density_con;
-                % density rho
-                self.dv_link.density_rho = [self.dv_max+1;
-                                            self.dv_max+self.num_density_con];
-                self.dv_max = self.dv_max + self.num_density_con;
-            else
-                self.num_density_con = 0;         
-                % set as none if no density conditions
-                self.dv_link.density_L = [NaN; NaN];   
-                self.dv_link.density_rho = [NaN; NaN];   
-            end
-            
-            if ~isnan(soft_queue_limit)
-                tmp_grid = self.start_time:30:self.end_time;
-                if tmp_grid(end)~= self.end_time
-                    tmp_grid = [tmp_grid'; self.end_time];
-                end
-                self.num_soft_queue_pt = length(tmp_grid);
-                % soft queue L
-                self.dv_link.queue_L = [self.dv_max+1;
-                                        self.dv_max+self.num_soft_queue_pt];
-                self.dv_max = slef.dv_max + self.num_soft_queue_pt;   
-                % soft queue s
-                self.dv_link.queue_s = [self.dv_max+1; 
-                                        self.dv_max+self.num_soft_queue_pt];
-                self.dv_max = self.dv_max + self.num_soft_queue_pt;
-            else
-                self.num_soft_queue_pt = 0;
-                % set as none if no soft queue limit
-                self.dv_link.queue_L = [NaN; NaN];
-                self.dv_link.queue_s = [NaN; NaN];
-            end            
+            self.num_internal_con = 0;                 % disable internal condition
+            self.num_density_con = 0;                 % disable density condition
             
             % set road parameters
             self.v = para.vf;
@@ -275,6 +189,7 @@ classdef setIneqConstraints
             self.start_time = start_time;
             self.now_time = now_time;
             self.end_time = end_time;
+            
             
             % For some auxiliary variabels which can be helpful when
             % defining objectives.
@@ -361,8 +276,7 @@ classdef setIneqConstraints
             end
             self.X_grid_cum = Initial_con.X_grid_cum;
             
-            if (length(Initial_con.X_grid_cum)~=length(Initial_con.IC)+1 ...
-                && ~isempty(Initial_con.IC))
+            if (length(Initial_con.X_grid_cum)~=length(Initial_con.IC)+1 && ~isempty(Initial_con.IC))
                 errors('Check ini_segments and rho_ini dimensions');
             end
             
@@ -395,15 +309,13 @@ classdef setIneqConstraints
             self.size_row = self.num_us_con + self.num_ds_con +...
                             self.num_initial_con + ...
                             2*self.num_internal_con + ...
-                            2*self.num_density_con + ...
-                            2*self.num_soft_queue_pt + 1; 
+                            2*self.num_density_con + 1; 
                       
             %This row size if defined as a temporary one to compute the number of needed binary variables
             [self.nb_min_traj, self.nb_max_traj, self.nb_min_dens, self.nb_max_dens] = self.getBinaryvar;
             
             self.size_row = self.num_us_con + self.num_ds_con + self.num_initial_con + ...
                             2*self.num_internal_con + 2*self.num_density_con + ...
-                            2*self.num_soft_queue_pt + ...
                             sum(self.nb_min_traj) + sum(self.nb_max_traj) + ...
                             sum(self.nb_min_dens) + sum(self.nb_max_dens) + ...
                             sum(self.num_aux) + 1; 
@@ -569,15 +481,15 @@ classdef setIneqConstraints
             
             array = zeros(1,self.size_row);  %Initialize the array
             
-            % characteristic domain
             if((self.T_us_cum(n) + (x - self.us_pos_m)/self.v <= t) && ...
                     (self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v >= t ) && (n<= self.num_us_con))
+                % in characteristic domain
                 array(1,1:n-1) = self.T_us(1:n-1);
                 array(1,n) = t - (x-self.us_pos_m) / self.v - self.T_us_cum(n);
                 return
                 
-            % Fan domain
             elseif((self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v < t) && (n <= self.num_us_con))
+                % in Fan domain
                 array(1,1:n) = self.T_us(1:n);
                 array(1,self.size_row) = -self.k_c*self.v * (t - self.T_us_cum(n+1) - (x-self.us_pos_m)/self.v);
                 return
@@ -601,9 +513,9 @@ classdef setIneqConstraints
         function [array] = m_ds_con(self,n,t,x)
             array = zeros(1,self.size_row);
             
-            % in characteristic domain
             if( (self.T_ds_cum(n) + (x - self.ds_pos_m)/self.w <= t) &&...
                     (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w >= t )&& (n <= self.num_ds_con))
+                % in characteristic domain
                 array(1,self.num_us_con + self.num_ds_con +1:...
                     self.num_us_con + self.num_ds_con + self.num_initial_con) = -self.X_grid; %initial number of vehicles
                 array(1,self.num_us_con +1:self.num_us_con + n-1) = self.T_ds(1:n-1);
@@ -611,8 +523,8 @@ classdef setIneqConstraints
                 array(1,self.size_row) = self.k_m*(x-self.ds_pos_m);
                 return
                 
-            % in Fan domain
             elseif( (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w < t) && (n <= self.num_ds_con))
+                % in Fan domain
                 array(1,self.num_us_con + self.num_ds_con +1:...
                     self.num_us_con + self.num_ds_con + self.num_initial_con) = -self.X_grid; %initial number of vehicles
                 array(1,self.num_us_con +1:self.num_us_con + n) = self.T_ds(1:n);
@@ -681,24 +593,19 @@ classdef setIneqConstraints
         function [array] = m_initial_con_ff(self,b,t,x)
             array = zeros(1,self.size_row);
             
-            % characteristic domain
             if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.v <= x) &&...
                     (x <=self.us_pos_m+ sum(self.X_grid(1:b)) + t*self.v) &&...
                     ( b <= self.num_initial_con))
-                array(1,self.num_us_con + self.num_ds_con + 1 : ...
-                        self.num_us_con + self.num_ds_con + b-1) = -self.X_grid(1:b-1);
+                array(1,self.num_us_con + self.num_ds_con + 1 : self.num_us_con + self.num_ds_con + b-1) = -self.X_grid(1:b-1);
                 
-                array(1,self.num_us_con + self.num_ds_con + b) = ...
-                    (t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
+                array(1,self.num_us_con + self.num_ds_con + b) = (t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
                 return
             end
             
-            % Fan domain
             if ( (self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
                     (x < self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.v) &&...
                     (b <= self.num_initial_con))
-                array(1,self.num_us_con + self.num_ds_con + 1: ...
-                        self.num_us_con + self.num_ds_con + b-1) = -self.X_grid(1:b-1);
+                array(1,self.num_us_con + self.num_ds_con + 1: self.num_us_con + self.num_ds_con + b-1) = -self.X_grid(1:b-1);
                 
                 array(1,self.size_row) = -self.k_c*(t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
                 return
@@ -720,26 +627,21 @@ classdef setIneqConstraints
         %           the nth initial boundary condition
         function [array] = m_initial_con_cf(self,b,t,x)
             array = zeros(1,self.size_row);
-            % characteristic domain
             if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
                     (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w) &&...
                     ( b <= self.num_initial_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + 1 :...
-                        self.num_us_con + self.num_ds_con + b - 1 ) = -self.X_grid(1:b-1);
-                array(1,self.num_us_con + self.num_ds_con + b) = ...
-                    (t*self.w - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
+                array(1,self.num_us_con + self.num_ds_con + 1 : self.num_us_con + self.num_ds_con + b - 1 ) = -self.X_grid(1:b-1);
+                array(1,self.num_us_con + self.num_ds_con + b) = (t*self.w - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
                 array(1,self.size_row) = self.k_m*t*self.w;
                 return
             end
             
-            % Fan domain
             if ( (self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w < x) &&...
                     (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.v) &&...
                     (b <= self.num_initial_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + 1:...
-                    self.num_us_con + self.num_ds_con+b-1) = -self.X_grid(1:b-1);
+                array(1,self.num_us_con + self.num_ds_con + 1:self.num_us_con + self.num_ds_con+b-1) = -self.X_grid(1:b-1);
                 array(1,self.num_us_con + self.num_ds_con + b) = -self.X_grid(b);
                 array(1,self.size_row) = -(self.k_c*(t*self.w - x + sum(self.X_grid(1:b)) + self.us_pos_m) - self.k_m*t*self.w);
                 return
@@ -853,7 +755,7 @@ classdef setIneqConstraints
                        self.T_us_cum(n+1) + (self.ds_pos_m-self.us_pos_m)/self.v >= self.T_ds_cum(p)
                         % point (self.T_ds_cum(p), self.ds_pos_m)
                         array = self.m_us_con(n,self.T_ds_cum(p),self.ds_pos_m);
-                        array2 = self.subtractArray(array, self.ds_con(self.T_ds_cum(p), self.ds_pos_m));
+                        array2 = self.substractArray(array, self.ds_con(self.T_ds_cum(p), self.ds_pos_m));
                         if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                             rows = rows+1;
                             list(rows,:) = array2;
@@ -866,7 +768,7 @@ classdef setIneqConstraints
                 % point (self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m) 
                 % where solution >= value condition 
                 array = self.m_us_con(n, self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m);
-                array2 = self.subtractArray(array, self.ds_con(self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m));
+                array2 = self.substractArray(array, self.ds_con(self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m));
                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                     rows = rows+1;
                     list(rows,:) = array2;
@@ -879,7 +781,7 @@ classdef setIneqConstraints
                 for m=1:self.num_internal_con
                     
                     array = self.m_us_con(n,self.t_min_traj(m), self.x_min_traj(m));
-                    array2 = self.subtractArray(array, self.traj_con(m, self.t_min_traj(m), self.x_min_traj(m)));
+                    array2 = self.substractArray(array, self.traj_con(m, self.t_min_traj(m), self.x_min_traj(m)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         
@@ -887,7 +789,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_us_con(n,self.t_max_traj(m), self.x_max_traj(m));
-                    array2 = self.subtractArray(array, self.traj_con(m, self.t_max_traj(m), self.x_max_traj(m)));
+                    array2 = self.substractArray(array, self.traj_con(m, self.t_max_traj(m), self.x_max_traj(m)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         
@@ -898,7 +800,7 @@ classdef setIneqConstraints
                               self.x_min_traj(m) - self.us_pos_m) / (self.v - self.v_meas_traj(m));
                     x_temp = self.x_min_traj(m) + self.v_meas_traj(m)*(t_temp - self.t_min_traj(m));
                     array = self.m_us_con(n,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(m, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(m, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -910,7 +812,7 @@ classdef setIneqConstraints
                 for u=1:self.num_density_con
                     
                     array = self.m_us_con(n,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -918,14 +820,14 @@ classdef setIneqConstraints
                     
                     
                     array = self.m_us_con(n,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_us_con(n,self.t_dens(u), self.us_pos_m + self.v*(self.t_dens(u)-self.T_us_cum(n)));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m +...
                         self.v*(self.t_dens(u)-self.T_us_cum(n))));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -949,7 +851,7 @@ classdef setIneqConstraints
                             self.T_ds_cum(n+1) + (self.us_pos_m-self.ds_pos_m)/self.w >= self.T_us_cum(p)
                         % point (self.T_us_cum(p), self.us_pos_m)
                         array = self.m_ds_con(n,self.T_us_cum(p), self.us_pos_m);
-                        array2 = self.subtractArray(array, self.us_con(self.T_us_cum(p), self.us_pos_m));
+                        array2 = self.substractArray(array, self.us_con(self.T_us_cum(p), self.us_pos_m));
                         if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                             rows = rows+1;
                             
@@ -961,7 +863,7 @@ classdef setIneqConstraints
                 
                 % intersection point at upstream (self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w,self.us_pos_m)
                 array = self.m_ds_con(n,self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m);
-                array2 = self.subtractArray(array, self.us_con(self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m));
+                array2 = self.substractArray(array, self.us_con(self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m));
                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                     rows = rows+1;
                     
@@ -974,14 +876,14 @@ classdef setIneqConstraints
                 % internal condition points
                 for m=1:self.num_internal_con
                     array = self.m_ds_con(n,self.t_min_traj(m), self.x_min_traj(m));
-                    array2 = self.subtractArray(array, self.traj_con(m, self.t_min_traj(m), self.x_min_traj(m)));
+                    array2 = self.substractArray(array, self.traj_con(m, self.t_min_traj(m), self.x_min_traj(m)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_ds_con(n,self.t_max_traj(m), self.x_max_traj(m));
-                    array2 = self.subtractArray(array, self.traj_con(m, self.t_max_traj(m), self.x_max_traj(m)));
+                    array2 = self.substractArray(array, self.traj_con(m, self.t_max_traj(m), self.x_max_traj(m)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -991,7 +893,7 @@ classdef setIneqConstraints
                         self.x_min_traj(m) - self.ds_pos_m) / (self.w - self.v_meas_traj(m));
                     x_temp = self.x_min_traj(m) + self.v_meas_traj(m)*(t_temp - self.t_min_traj(m));
                     array = self.m_ds_con(n,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(m, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(m, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1002,21 +904,21 @@ classdef setIneqConstraints
                 for u=1:self.num_density_con
                     
                     array = self.m_ds_con(n,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_ds_con(n,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_ds_con(n,self.t_dens(u), self.ds_pos_m + self.w*(self.t_dens(u)-self.T_ds_cum(n)));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.ds_pos_m +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.ds_pos_m +...
                         self.w*(self.t_dens(u)-self.T_ds_cum(n))));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1038,7 +940,7 @@ classdef setIneqConstraints
                     
                     % upstream time grid points
                     array = self.m_initial_con_ff(k,self.T_us_cum(p),self.us_pos_m);
-                    array2 = self.subtractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
+                    array2 = self.substractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1047,7 +949,7 @@ classdef setIneqConstraints
                     
                     %TAU 2
                     array = self.m_initial_con_cf(k,self.T_us_cum(p),self.us_pos_m);
-                    array2 = self.subtractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
+                    array2 = self.substractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1058,7 +960,7 @@ classdef setIneqConstraints
                 % at upstream intersection points
                 % tau 1
                 array = self.m_initial_con_ff(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.start_time +...
+                array2 = self.substractArray(array,self.us_con(self.start_time +...
                     (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                     rows = rows+1;
@@ -1067,7 +969,7 @@ classdef setIneqConstraints
                 
                 % tau 2
                 array = self.m_initial_con_cf(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.start_time +...
+                array2 = self.substractArray(array,self.us_con(self.start_time +...
                     (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                     rows = rows+1;
@@ -1080,7 +982,7 @@ classdef setIneqConstraints
                    
                     % Tau1
                     array = self.m_initial_con_ff(k,self.T_ds_cum(p),self.ds_pos_m);
-                    array2 = self.subtractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
+                    array2 = self.substractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1088,7 +990,7 @@ classdef setIneqConstraints
                    
                     %tau2
                     array = self.m_initial_con_cf(k,self.T_ds_cum(p),self.ds_pos_m);
-                    array2 = self.subtractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
+                    array2 = self.substractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1098,7 +1000,7 @@ classdef setIneqConstraints
                 
                 % intersection point at downstream
                 array = self.m_initial_con_ff(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.start_time +...
+                array2 = self.substractArray(array,self.ds_con(self.start_time +...
                     (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                     rows = rows+1;
@@ -1106,7 +1008,7 @@ classdef setIneqConstraints
                 end
                 
                 array = self.m_initial_con_cf(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.start_time +...
+                array2 = self.substractArray(array,self.ds_con(self.start_time +...
                     (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                     rows = rows+1;
@@ -1118,14 +1020,14 @@ classdef setIneqConstraints
                     
                     %TAU 1
                     array = self.m_initial_con_ff(k,self.t_min_traj(p), self.x_min_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_initial_con_ff(k,self.t_max_traj(p), self.x_max_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1135,7 +1037,7 @@ classdef setIneqConstraints
                         / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1145,7 +1047,7 @@ classdef setIneqConstraints
                         / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1155,7 +1057,7 @@ classdef setIneqConstraints
                         / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1165,7 +1067,7 @@ classdef setIneqConstraints
                         / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1174,14 +1076,14 @@ classdef setIneqConstraints
                     
                     %TAU 2
                     array = self.m_initial_con_cf(k,self.t_min_traj(p), self.x_min_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_initial_con_cf(k,self.t_max_traj(p), self.x_max_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1191,7 +1093,7 @@ classdef setIneqConstraints
                         / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1201,7 +1103,7 @@ classdef setIneqConstraints
                         / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1211,7 +1113,7 @@ classdef setIneqConstraints
                         / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1221,7 +1123,7 @@ classdef setIneqConstraints
                         / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_initial_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1234,14 +1136,14 @@ classdef setIneqConstraints
                     
                     %TAU 1
                     array = self.m_initial_con_ff(k,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_initial_con_ff(k,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1249,7 +1151,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_ff(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1258,7 +1160,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_ff(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1267,7 +1169,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_ff(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1276,7 +1178,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_ff(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1286,14 +1188,14 @@ classdef setIneqConstraints
                     
                     %TAU 2
                     array = self.m_initial_con_cf(k,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_initial_con_cf(k,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1301,7 +1203,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_cf(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1310,7 +1212,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_cf(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1319,7 +1221,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_cf(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k-1)) +...
                         (self.t_dens(u)-self.start_time)*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1328,7 +1230,7 @@ classdef setIneqConstraints
                     
                     array = self.m_initial_con_cf(k,self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.us_pos_m + sum(self.X_grid(1:k)) +...
                         (self.t_dens(u)-self.start_time)*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1348,7 +1250,7 @@ classdef setIneqConstraints
                 for p=1:self.num_us_con+1
                     
                     array = self.m_traj_con(m,self.T_us_cum(p), self.us_pos_m);
-                    array2 = self.subtractArray(array, self.us_con(self.T_us_cum(p), self.us_pos_m));
+                    array2 = self.substractArray(array, self.us_con(self.T_us_cum(p), self.us_pos_m));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1357,7 +1259,7 @@ classdef setIneqConstraints
                     t_temp = (self.us_pos_m - self.x_min_traj(m) + self.w*self.t_min_traj(m)) / (self.w);
                     x_temp = self.us_pos_m;
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.us_con(t_temp, x_temp));
+                    array2 = self.substractArray(array, self.us_con(t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1366,7 +1268,7 @@ classdef setIneqConstraints
                     t_temp = (self.us_pos_m - self.x_max_traj(m) + self.w*self.t_max_traj(m)) / (self.w);
                     x_temp = self.us_pos_m;
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.us_con(t_temp, x_temp));
+                    array2 = self.substractArray(array, self.us_con(t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1379,7 +1281,7 @@ classdef setIneqConstraints
                 for p=1:self.num_ds_con+1
                     
                     array = self.m_traj_con(m,self.T_ds_cum(p), self.ds_pos_m);
-                    array2 = self.subtractArray(array, self.ds_con(self.T_ds_cum(p), self.ds_pos_m));
+                    array2 = self.substractArray(array, self.ds_con(self.T_ds_cum(p), self.ds_pos_m));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1388,7 +1290,7 @@ classdef setIneqConstraints
                     t_temp = (self.ds_pos_m - self.x_min_traj(m) + self.v*self.t_min_traj(m)) / (self.v);
                     x_temp = self.ds_pos_m;
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.ds_con(t_temp, x_temp));
+                    array2 = self.substractArray(array, self.ds_con(t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1397,7 +1299,7 @@ classdef setIneqConstraints
                     t_temp = (self.ds_pos_m - self.x_max_traj(m) + self.v*self.t_max_traj(m)) / (self.v);
                     x_temp = self.ds_pos_m;
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.ds_con(t_temp, x_temp));
+                    array2 = self.substractArray(array, self.ds_con(t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1410,14 +1312,14 @@ classdef setIneqConstraints
                 for p=1:self.num_internal_con
                     
                     array = self.m_traj_con(m,self.t_min_traj(p), self.x_min_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p,self.t_min_traj(p), self.x_min_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p,self.t_min_traj(p), self.x_min_traj(p)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_traj_con(m,self.t_max_traj(p), self.x_max_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p,self.t_max_traj(p), self.x_max_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p,self.t_max_traj(p), self.x_max_traj(p)));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1427,7 +1329,7 @@ classdef setIneqConstraints
                         self.v_meas_traj(m) * self.t_min_traj(m)) / (self.v_meas_traj(p) - self.v_meas_traj(m));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1438,7 +1340,7 @@ classdef setIneqConstraints
                         self.v * self.t_max_traj(m)) / (self.v_meas_traj(p) - self.v);
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1449,7 +1351,7 @@ classdef setIneqConstraints
                         self.v * self.t_min_traj(m)) / (self.v_meas_traj(p) - self.v);
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1460,7 +1362,7 @@ classdef setIneqConstraints
                         self.v * self.t_max_traj(m)) / (self.v_meas_traj(p) - self.w);
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1471,7 +1373,7 @@ classdef setIneqConstraints
                         self.v * self.t_min_traj(m)) / (self.v_meas_traj(p) - self.w);
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_traj_con(m,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1485,21 +1387,21 @@ classdef setIneqConstraints
                 for u=1:self.num_density_con
                     
                     array = self.m_traj_con(m,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u,self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u,self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_traj_con(m,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u,self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u,self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_traj_con(m,self.t_dens(u), self.x_min_traj(m)+(self.t_dens(u)-self.t_min_traj(m))*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u,self.t_dens(u),...
+                    array2 = self.substractArray(array, self.dens_con(u,self.t_dens(u),...
                                                self.x_min_traj(m)+(self.t_dens(u)-self.t_min_traj(m))*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1507,7 +1409,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_traj_con(m,self.t_dens(u), self.x_max_traj(m)+(self.t_dens(u)-self.t_max_traj(m))*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u,self.t_dens(u),...
+                    array2 = self.substractArray(array, self.dens_con(u,self.t_dens(u),...
                         self.x_max_traj(m)+(self.t_dens(u)-self.t_max_traj(m))*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1515,7 +1417,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_traj_con(m,self.t_dens(u), self.x_min_traj(m)+(self.t_dens(u)-self.t_min_traj(m))*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u,self.t_dens(u),...
+                    array2 = self.substractArray(array, self.dens_con(u,self.t_dens(u),...
                         self.x_min_traj(m)+(self.t_dens(u)-self.t_min_traj(m))*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1523,7 +1425,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_traj_con(m,self.t_dens(u), self.x_max_traj(m)+(self.t_dens(u)-self.t_max_traj(m))*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u,self.t_dens(u),...
+                    array2 = self.substractArray(array, self.dens_con(u,self.t_dens(u),...
                         self.x_max_traj(m)+(self.t_dens(u)-self.t_max_traj(m))*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1543,7 +1445,7 @@ classdef setIneqConstraints
                     
                     %UPS1
                     array = self.m_dens_con_ff(k,self.T_us_cum(p),self.us_pos_m);
-                    array2 = self.subtractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
+                    array2 = self.substractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1551,7 +1453,7 @@ classdef setIneqConstraints
                     
                     %UPS2
                     array = self.m_dens_con_cf(k,self.T_us_cum(p),self.us_pos_m);
-                    array2 = self.subtractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
+                    array2 = self.substractArray(array,self.us_con(self.T_us_cum(p),self.us_pos_m));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1561,7 +1463,7 @@ classdef setIneqConstraints
                 
                 % upstream intersection points
                 array = self.m_dens_con_ff(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
+                array2 = self.substractArray(array,self.us_con(self.t_dens(k) +...
                         (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
                 if(~isempty(array2))
                     rows = rows+1;
@@ -1569,7 +1471,7 @@ classdef setIneqConstraints
                 end
                 
                 array = self.m_dens_con_cf(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
+                array2 = self.substractArray(array,self.us_con(self.t_dens(k) +...
                     (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
                 if(~isempty(array2))
                     rows = rows+1;
@@ -1582,7 +1484,7 @@ classdef setIneqConstraints
                     
                     %UPS1
                     array = self.m_dens_con_ff(k,self.T_ds_cum(p),self.ds_pos_m);
-                    array2 = self.subtractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
+                    array2 = self.substractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1590,7 +1492,7 @@ classdef setIneqConstraints
                     
                     %USP2
                     array = self.m_dens_con_cf(k,self.T_ds_cum(p),self.ds_pos_m);
-                    array2 = self.subtractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
+                    array2 = self.substractArray(array,self.ds_con(self.T_ds_cum(p),self.ds_pos_m));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1600,7 +1502,7 @@ classdef setIneqConstraints
                 
                 % downstream intersection points
                 array = self.m_dens_con_ff(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
+                array2 = self.substractArray(array,self.ds_con(self.t_dens(k) +...
                     (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
                 if(~isempty(array2))
                     rows = rows+1;
@@ -1608,7 +1510,7 @@ classdef setIneqConstraints
                 end
                 
                 array = self.m_dens_con_cf(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
+                array2 = self.substractArray(array,self.ds_con(self.t_dens(k) +...
                     (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
                 if(~isempty(array2))
                     rows = rows+1;
@@ -1621,14 +1523,14 @@ classdef setIneqConstraints
                     
                     %UPS 1
                     array = self.m_dens_con_ff(k,self.t_min_traj(p), self.x_min_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_dens_con_ff(k,self.t_max_traj(p), self.x_max_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1638,7 +1540,7 @@ classdef setIneqConstraints
                         self.v*self.t_dens(k)) / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1648,7 +1550,7 @@ classdef setIneqConstraints
                         self.w*self.t_dens(k)) / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1658,7 +1560,7 @@ classdef setIneqConstraints
                         self.v*self.t_dens(k)) / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1668,7 +1570,7 @@ classdef setIneqConstraints
                         self.w*self.t_dens(k)) / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_ff(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1677,14 +1579,14 @@ classdef setIneqConstraints
                     
                     %UPS 2
                     array = self.m_dens_con_cf(k,self.t_min_traj(p), self.x_min_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_min_traj(p), self.x_min_traj(p)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_dens_con_cf(k,self.t_max_traj(p), self.x_max_traj(p));
-                    array2 = self.subtractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
+                    array2 = self.substractArray(array, self.traj_con(p, self.t_max_traj(p), self.x_max_traj(p)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1694,7 +1596,7 @@ classdef setIneqConstraints
                         self.v*self.t_dens(k)) / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1704,7 +1606,7 @@ classdef setIneqConstraints
                         self.w*self.t_dens(k)) / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1714,7 +1616,7 @@ classdef setIneqConstraints
                         self.v*self.t_dens(k)) / (self.v - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1724,7 +1626,7 @@ classdef setIneqConstraints
                         self.w*self.t_dens(k)) / (self.w - self.v_meas_traj(p));
                     x_temp = self.v_meas_traj(p) * (t_temp - self.t_min_traj(p)) + self.x_min_traj(p);
                     array = self.m_dens_con_cf(k,t_temp, x_temp);
-                    array2 = self.subtractArray(array, self.traj_con(p, t_temp, x_temp));
+                    array2 = self.substractArray(array, self.traj_con(p, t_temp, x_temp));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
@@ -1738,21 +1640,21 @@ classdef setIneqConstraints
                     
                     %UPS 1
                     array = self.m_dens_con_ff(k,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_dens_con_ff(k,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_dens_con_ff(k,self.t_dens(u), self.x_min_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1760,7 +1662,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_dens_con_ff(k,self.t_dens(u), self.x_max_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1768,7 +1670,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_dens_con_ff(k,self.t_dens(u), self.x_min_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1776,7 +1678,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_dens_con_ff(k,self.t_dens(u), self.x_max_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1785,21 +1687,21 @@ classdef setIneqConstraints
                     
                     % %UPS 2
                     array = self.m_dens_con_cf(k,self.t_dens(u), self.x_min_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_dens_con_cf(k,self.t_dens(u), self.x_max_dens(u));
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(u)));
                     if(~isempty(array2))
                         rows = rows+1;
                         list(rows,:) = array2;
                     end
                     
                     array = self.m_dens_con_cf(k,self.t_dens(u), self.x_min_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1807,7 +1709,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_dens_con_cf(k,self.t_dens(u), self.x_max_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.v);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.v));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1815,7 +1717,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_dens_con_cf(k,self.t_dens(u), self.x_min_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_min_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1823,7 +1725,7 @@ classdef setIneqConstraints
                     end
                     
                     array = self.m_dens_con_cf(k,self.t_dens(u), self.x_max_dens(k) + (self.t_dens(u)-self.t_dens(k))*self.w);
-                    array2 = self.subtractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
+                    array2 = self.substractArray(array, self.dens_con(u, self.t_dens(u), self.x_max_dens(k) +...
                         (self.t_dens(u)-self.t_dens(k))*self.w));
                     if(~isempty(array2))
                         rows = rows+1;
@@ -1892,8 +1794,8 @@ classdef setIneqConstraints
                     if ~isnan(self.qout_meas(n))
                     array = zeros(1,self.size_row);
                     array(1,self.num_us_con + n) = 1;
-                    err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
-                              (self.T_us_cum(n+1) > self.now_time)*self.e_his;
+                    err = (si.T_us_cum(n+1)<=si.now_time)*self.e_meas_flow +...
+                              (si.T_us_cum(n+1) > si.now_time)*self.e_his;
                     array(1,self.size_row) = self.qout_meas(n)*(1-err);
                     rows = rows+1;
                     list2(rows,:)=array;
@@ -1904,8 +1806,8 @@ classdef setIneqConstraints
                     if ~isnan(self.qout_meas(n))
                     array = zeros(1,self.size_row);
                     array(1,self.num_ds_con + n) = -1;
-                    err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
-                              (self.T_us_cum(n+1)> self.now_time)*self.e_his;
+                    err = (si.T_us_cum(n+1)<=si.now_time)*self.e_meas_flow +...
+                              (si.T_us_cum(n+1)> si.now_time)*self.e_his;
                     array(1,self.size_row) = -self.qout_meas(n)*(1+err);
                     rows = rows+1;
                     list2(rows,:)=array;
@@ -2055,7 +1957,7 @@ classdef setIneqConstraints
                             for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                                 %-1 to be consistent with other functions self.mtau...
                                 arraym = self.m_initial_con_ff(b,self.t_min_traj(k), self.x_min_traj(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2070,7 +1972,7 @@ classdef setIneqConstraints
                             for b = self.indiced_rho_ini(block,2):-1:self.indiced_rho_ini(block,1)
                                 % For k>k_c case, From the last one
                                 arraym = self.m_initial_con_cf(b,self.t_min_traj(k), self.x_min_traj(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2085,7 +1987,7 @@ classdef setIneqConstraints
                             for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                                 % For undefined initial blocks, check all
                                 arraym = self.m_initial_con_ff(b,self.t_min_traj(k), self.x_min_traj(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2094,7 +1996,7 @@ classdef setIneqConstraints
                                 end
                                 
                                 arraym = self.m_initial_con_cf(b,self.t_min_traj(k), self.x_min_traj(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2113,7 +2015,7 @@ classdef setIneqConstraints
                     for n=1:self.num_ds_con
                         
                         arraym = self.m_ds_con(n,self.t_min_traj(k), self.x_min_traj(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2) && arraym(1,self.num_us_con + n) ~= self.T_ds(n))
                             % The second condition ensure we only consider
                             % the solution at the characteristic domain
@@ -2133,7 +2035,7 @@ classdef setIneqConstraints
                     for n=1:self.num_us_con    
                         
                         arraym = self.m_us_con(n,self.t_min_traj(k), self.x_min_traj(k));
-                        array2 = self.subtractArray(arraym, temp_array);
+                        array2 = self.substractArray(arraym, temp_array);
                         if(~isempty(array2) && arraym(1,self.size_row)==0)
                             %Add a constraint
                             rows = size(list3,1);
@@ -2152,7 +2054,7 @@ classdef setIneqConstraints
                         
                         if(n~=k)
                             arraym = self.m_traj_con(n,self.t_min_traj(k), self.x_min_traj(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2174,7 +2076,7 @@ classdef setIneqConstraints
                         n = index_u(i);
                         
                         arraym = self.m_dens_con_ff(n,self.t_min_traj(k), self.x_min_traj(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2183,7 +2085,7 @@ classdef setIneqConstraints
                         end
                         
                         arraym = self.m_dens_con_cf(n,self.t_min_traj(k), self.x_min_traj(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2220,7 +2122,7 @@ classdef setIneqConstraints
                         array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
                         
                         % Add constraint to the MILP matrix
-                        array2 = self.subtractArray(array,tempM(i,:));
+                        array2 = self.substractArray(array,tempM(i,:));
                         rows = size(list3,1);
                         list3(rows+1,:) = array2;
                     end
@@ -2261,7 +2163,7 @@ classdef setIneqConstraints
                         for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                             %-1 to be consistent with other functions self.mtau...
                             arraym = self.m_initial_con_ff(b,self.t_max_traj(k), self.x_max_traj(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2276,7 +2178,7 @@ classdef setIneqConstraints
                         for b = self.indiced_rho_ini(block,2):-1:self.indiced_rho_ini(block,1)
                             % For k>k_c case, From the last one
                             arraym = self.m_initial_con_cf(b,self.t_max_traj(k), self.x_max_traj(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2291,7 +2193,7 @@ classdef setIneqConstraints
                         for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                             % For undefined initial blocks, check all
                             arraym = self.m_initial_con_ff(b,self.t_max_traj(k), self.x_max_traj(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2300,7 +2202,7 @@ classdef setIneqConstraints
                             end
                             
                             arraym = self.m_initial_con_cf(b,self.t_max_traj(k), self.x_max_traj(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2317,7 +2219,7 @@ classdef setIneqConstraints
                 % Solutions associated with downstream conditions
                 for n=1:self.num_ds_con
                     arraym = self.m_ds_con(n,self.t_max_traj(k), self.x_max_traj(k));
-                    array2 = self.subtractArray(arraym,temp_array);
+                    array2 = self.substractArray(arraym,temp_array);
                     if(~isempty(array2) && arraym(1,self.num_us_con + n) ~= self.T_ds(n))
                         %Add a constraint
                         rows = size(list3,1);
@@ -2332,7 +2234,7 @@ classdef setIneqConstraints
                 % Solutions associated with upstream conditions
                 for n=1:self.num_us_con
                     arraym = self.m_us_con(n,self.t_max_traj(k), self.x_max_traj(k));
-                    array2 = self.subtractArray(arraym, temp_array);
+                    array2 = self.substractArray(arraym, temp_array);
                     if(~isempty(array2)  && arraym(1,self.size_row)==0)
                         %Add a constraint
                         rows = size(list3,1);
@@ -2350,7 +2252,7 @@ classdef setIneqConstraints
                     
                     if(n~=k)
                         arraym = self.m_traj_con(n,self.t_max_traj(k), self.x_max_traj(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             %Add a constraint
                             rows = size(list3,1);
@@ -2373,7 +2275,7 @@ classdef setIneqConstraints
                     n = index_u(i);
                     
                     arraym = self.m_dens_con_ff(n,self.t_max_traj(k), self.x_max_traj(k));
-                    array2 = self.subtractArray(arraym,temp_array);
+                    array2 = self.substractArray(arraym,temp_array);
                     if(~isempty(array2))
                         rows = size(list3,1);
                         list3(rows+1,:) = array2;
@@ -2382,7 +2284,7 @@ classdef setIneqConstraints
                     end
                     
                     arraym = self.m_dens_con_cf(n,self.t_max_traj(k), self.x_max_traj(k));
-                    array2 = self.subtractArray(arraym,temp_array);
+                    array2 = self.substractArray(arraym,temp_array);
                     if(~isempty(array2))
                         rows = size(list3,1);
                         list3(rows+1,:) = array2;
@@ -2419,7 +2321,7 @@ classdef setIneqConstraints
 
                     array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
                     % Add constraint to the matrix constraints
-                    array2 = self.subtractArray(array,tempM(i,:));
+                    array2 = self.substractArray(array,tempM(i,:));
                     rows = size(list3,1);
                     list3(rows+1,:) = array2;
                 end
@@ -2496,7 +2398,7 @@ classdef setIneqConstraints
                             for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                                 %-1 to be consistent with other functions self.mtau...
                                 arraym = self.m_initial_con_ff(b,self.t_dens(k), self.x_min_dens(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2511,7 +2413,7 @@ classdef setIneqConstraints
                             for b = self.indiced_rho_ini(block,2):-1:self.indiced_rho_ini(block,1)
                                 % For k>k_c case, From the last one
                                 arraym = self.m_initial_con_cf(b,self.t_dens(k), self.x_min_dens(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2526,7 +2428,7 @@ classdef setIneqConstraints
                             for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                                 % For undefined initial blocks, check all
                                 arraym = self.m_initial_con_ff(b,self.t_dens(k), self.x_min_dens(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2535,7 +2437,7 @@ classdef setIneqConstraints
                                 end
                                 
                                 arraym = self.m_initial_con_cf(b,self.t_dens(k), self.x_min_dens(k));
-                                array2 = self.subtractArray(arraym,temp_array);
+                                array2 = self.substractArray(arraym,temp_array);
                                 if(~isempty(array2))
                                     rows = size(list3,1);
                                     list3(rows+1,:) = array2;
@@ -2553,7 +2455,7 @@ classdef setIneqConstraints
                     for n=1:self.num_ds_con    
                         
                         arraym = self.m_ds_con(n,self.t_dens(k), self.x_min_dens(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2) && arraym(1,self.num_us_con + n) ~= self.T_ds(n))
                             %Add a constraint
                             rows = size(list3,1);
@@ -2572,7 +2474,7 @@ classdef setIneqConstraints
                     for n=1:self.num_us_con
                         
                         arraym = self.m_us_con(n,self.t_dens(k), self.x_min_dens(k));
-                        array2 = self.subtractArray(arraym, temp_array);
+                        array2 = self.substractArray(arraym, temp_array);
                         if(~isempty(array2) && arraym(1,self.size_row)==0)
                             %Add a constraint
                             rows = size(list3,1);
@@ -2591,7 +2493,7 @@ classdef setIneqConstraints
                     for n=1:self.num_internal_con    
                         
                         arraym = self.m_traj_con(n,self.t_dens(k), self.x_min_dens(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2613,7 +2515,7 @@ classdef setIneqConstraints
                         
                         
                         arraym = self.m_dens_con_ff(n,self.t_dens(k), self.x_min_dens(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2622,7 +2524,7 @@ classdef setIneqConstraints
                         end
                             
                         arraym = self.m_dens_con_cf(n,self.t_dens(k), self.x_min_dens(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2662,7 +2564,7 @@ classdef setIneqConstraints
 
                         array(1,self.size_row) = -Cmax*(sum(comb_mat(i,:))); %RHS (set negative to be on same side)
                         % Add constraint to the MILP matrix
-                        array2 = self.subtractArray(array,tempM(i,:));
+                        array2 = self.substractArray(array,tempM(i,:));
                         rows = size(list3,1);
                         list3(rows+1,:) = array2;
                     end
@@ -2706,7 +2608,7 @@ classdef setIneqConstraints
                         for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                             %-1 to be consistent with other functions self.mtau...
                             arraym = self.m_initial_con_ff(b,self.t_dens(k), self.x_max_dens(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2721,7 +2623,7 @@ classdef setIneqConstraints
                         for b = self.indiced_rho_ini(block,2):-1:self.indiced_rho_ini(block,1)
                             % For k>k_c case, From the last one
                             arraym = self.m_initial_con_cf(b,self.t_dens(k), self.x_max_dens(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2736,7 +2638,7 @@ classdef setIneqConstraints
                         for b = self.indiced_rho_ini(block,1):self.indiced_rho_ini(block,2)
                             % For undefined initial blocks, check all
                             arraym = self.m_initial_con_ff(b,self.t_dens(k), self.x_max_dens(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2745,7 +2647,7 @@ classdef setIneqConstraints
                             end
                             
                             arraym = self.m_initial_con_cf(b,self.t_dens(k), self.x_max_dens(k));
-                            array2 = self.subtractArray(arraym,temp_array);
+                            array2 = self.substractArray(arraym,temp_array);
                             if(~isempty(array2))
                                 rows = size(list3,1);
                                 list3(rows+1,:) = array2;
@@ -2761,7 +2663,7 @@ classdef setIneqConstraints
                 % Solutions associated with downstream conditions
                 for n=1:self.num_ds_con
                     arraym = self.m_ds_con(n,self.t_dens(k), self.x_max_dens(k));
-                    array2 = self.subtractArray(arraym,temp_array);
+                    array2 = self.substractArray(arraym,temp_array);
                     if(~isempty(array2) && array(1,self.num_us_con + n) ~= self.T_ds(n))
                         %Add a constraint
                         rows = size(list3,1);
@@ -2777,7 +2679,7 @@ classdef setIneqConstraints
                 % Solutions associated with upstream conditions
                 for n=1:self.num_us_con
                     arraym = self.m_us_con(n,self.t_dens(k), self.x_max_dens(k));
-                    array2 = self.subtractArray(arraym, temp_array);
+                    array2 = self.substractArray(arraym, temp_array);
                     if(~isempty(array2)  && arraym(1,self.size_row)==0)
                         %Add a constraint
                         rows = size(list3,1);
@@ -2794,7 +2696,7 @@ classdef setIneqConstraints
                 for n=1:self.num_internal_con
                     
                     arraym = self.m_traj_con(n,self.t_dens(k), self.x_max_dens(k));
-                    array2 = self.subtractArray(arraym,temp_array);
+                    array2 = self.substractArray(arraym,temp_array);
                     if(~isempty(array2))
                         %Add a constraint
                         rows = size(list3,1);
@@ -2813,8 +2715,9 @@ classdef setIneqConstraints
                     
                     n = index_u(i);
                     
+               
                         arraym = self.m_dens_con_ff(n,self.t_dens(k), self.x_max_dens(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2823,7 +2726,7 @@ classdef setIneqConstraints
                         end
                         
                         arraym = self.m_dens_con_cf(n,self.t_dens(k), self.x_max_dens(k));
-                        array2 = self.subtractArray(arraym,temp_array);
+                        array2 = self.substractArray(arraym,temp_array);
                         if(~isempty(array2))
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2863,7 +2766,7 @@ classdef setIneqConstraints
                     
                     % Add constraint to the matrix constraints
                     
-                    array2 = self.subtractArray(array,tempM(i,:));
+                    array2 = self.substractArray(array,tempM(i,:));
                     rows = size(list3,1);
                     list3(rows+1,:) = array2;
                 end
@@ -2893,125 +2796,6 @@ classdef setIneqConstraints
         end
         
         
-        
-        %==========================================================================
-        % Function to create hard constraitns for queue limit.
-        % Intuition: if the queue extends to the point, then the solution L
-        % at that point comes from the downstream. Since by triangular FD,
-        % the point will at only in the charicateristic domain M_us of one value
-        % condition. Similarly, it locates only in the charactheristic
-        % domain M_ds of one downstream condition. Then we only need
-        %       M_ds >= M_us
-        % NOTE: this only works with only initial and boundary conditions
-        % input: 
-        %       max_length: the maximal length of the queue in meters
-        %       from the downstream
-        % output:
-        %       the constraint matrix
-        function [list] = setQueueLimit(self, max_length)
-            
-            len_link = self.ds_pos_m - self.us_pos_m;
-            
-            % create a set of queue limit point evenly discretized in 30 s 
-            % in time
-            T_queue_cum = self.start_time:30:self.end_time;
-            if T_queue_cum(end) ~= self.end_time
-                T_queue_cum = [T_queue_cum'; self.end_time];
-            end
-            num_queue_pt = length(T_queue_cum)-1;
-            t_queue = T_queue_cum(2:end);
-            
-            if max_length >= len_link
-                warning('ineffective queue limit')
-            else
-                x_queue = self.ds_pos_m - ones(num_queue_pt,1)*max_length;
-            end
-            list = zeros(num_queue_pt, self.size_row);
-            rows = 0;
-            
-            % for each point
-            for pt = 1: num_queue_pt
-                
-                % Note only one of M_ds and M_init_cong will be non empty
-                % and only one of M_us and M_init_free will be non empty
-                
-                % Downstream characteristic domain
-                M_ds = [];
-                for ds = 1:self.num_ds_con
-                    tmp_ds = self.m_ds_con(ds, t_queue(pt), x_queue(pt));
-                    if ~isempty(tmp_ds) && tmp_ds(1, self.num_us_con + ds) ~= self.T_ds(ds)
-                        M_ds = tmp_ds;
-                        break;  % Got the solution in the characteristic domain
-                    end
-                end
-                
-                % If not in downstream characteristic domain. Then must be
-                % in the initial condtion domain when its congested. 
-                if isempty(M_ds)
-                    % congested initial conditions;
-                    M_init_cong = [];
-                    for b = 1:self.num_initial_con
-                        tmp_init_cong = self.m_initial_con_cf(b, t_queue(pt), x_queue(pt));
-                        if ~isempty(tmp_init_cong) && ...
-                                tmp_init_cong(1, self.num_us_con+self.num_ds_con+b) ~= -self.X_grid(b)
-                            M_init_cong = tmp_init_cong;
-                            break;
-                        end
-                    end
-                    
-                    % impossible. something must be wrong
-                    if isempty(M_init_cong)
-                        error('Check the queue limit constraints.')
-                    else
-                        M_ds = M_init_cong;
-                    end
-                    
-                end
-                
-                % Upstream characteristic domain
-                M_us = [];
-                for us = 1:self.num_us_con
-                    M_us = self.m_us_con(us, t_queue(pt), x_queue(pt));
-                    if ~isempty(M_us) && M_us(1, self.size_row) == 0
-                        break;  % Got the solution in the characteristic domain
-                    end
-                end
-                
-                if isempty(M_us)
-                    % freeflow initial conditions
-                    M_init_free = [];
-                    for b = 1:self.num_initial_con
-                        tmp_init_free = self.m_initial_con_ff(b, t_queue(pt), x_queue(pt));
-                        if ~isempty(tmp_init_free) && ...
-                                tmp_init_free(1, self.size_row) == 0
-                            M_init_free = tmp_init_free;
-                            break;
-                        end
-                    end
-                    
-                    % impossible. something must be wrong
-                    if isempty(M_init_free)
-                        error('Check the queue limit constraints.')
-                    else
-                        M_us = M_init_free;
-                    end
-                    
-                end
-                
-                % Note the sign: M_ds >= M_us
-                % list(:,1:end-1) >= list(:, end)
-                array = self.subtractArray(M_ds, M_us);
-                
-                rows = rows+1;
-                list(rows,:) = array; 
-                
-            end
-            
-            % truncate matrix
-            list = list(1:rows,:);
-            
-            
-        end
 
 
 
@@ -3473,7 +3257,7 @@ classdef setIneqConstraints
         
         %==========================================================================
         % Method to substract to arrays with a "null" condition
-        function [output] = subtractArray(~,value1,value2)
+        function [output] = substractArray(~,value1,value2)
             if ( (~isempty(value1)) && (~isempty(value2)) )
                 output = value1-value2;
             else

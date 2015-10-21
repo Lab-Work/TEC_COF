@@ -59,10 +59,11 @@ queue_limit.onramp = 2/3; % of total length
 
 %===============================================================
 % start the simulation
-meter.startSimulation();
+meter.initMATLAB();
 dt_warm_up = 25*60; % 25 min warm up. Then at 30 min, the sensor 
 meter.warmUp(dt_warm_up);
 
+meter.startControl();
 %===============================================================
 % now start a rolling time horizon simulation
 % while new data coming in and t_now
@@ -76,12 +77,12 @@ while (~exist(meter.com.stop_control, 'file'))
         % extract the initial condition from previous roll solution which
         % has relative time starting from 0.
         % at time self.t_now - self.t_previous_roll_now
-        if meter.t_now - meter.t_sim_start <= dt_past
+        if meter.t_sim_start == 0
             % if no need to roll
             init_condition = [];
         else
-            init_condition = Mos.extractDensity(self.t_now ...
-                - self.t_previous_roll_now);            
+            init_condition = Mos.extractDensity(meter.t_sim_start ...
+                - t_previous_sim_start);            
         end
         
         % update the boundary discretization grid
@@ -148,7 +149,7 @@ while (~exist(meter.com.stop_control, 'file'))
         
         %=========================================
         % plot the entropic result if needed
-        % Mos.plotJuncs('all');
+        Mos.plotJuncs('all');
       
         % Get the real time computation time
         dt_computation_end = now;
@@ -168,8 +169,8 @@ while (~exist(meter.com.stop_control, 'file'))
         % save the state solution which will be used for extracting the new
         % initial condition
         flow_sol = x;
-        t_previous_roll_now = self.t_now;   % update the t_now in previous roll
-        
+        t_previous_roll_now = meter.t_now;   % update the t_now in previous roll
+        t_previous_sim_start = meter.t_sim_start;
     end
     
 end

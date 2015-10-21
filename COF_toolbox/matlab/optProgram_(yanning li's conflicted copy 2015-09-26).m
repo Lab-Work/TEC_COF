@@ -11,11 +11,6 @@ classdef optProgram < handle
         start_time;        % always 0
         end_time;
         
-        % set hard constraints of the queue limit
-        % a struct; .(linkStr) = maximal queue length in meters
-        %          or .onramp sets the ratio for all onramps
-        queue_limit;    
-        
         % Decision variable locator, a atruct
         % dv_index.(linkStr) = [start of upstream, start of downstream, start of initial;
         %                  end of upstream, end of downstream, end of initial
@@ -28,10 +23,6 @@ classdef optProgram < handle
         % dv_index.(juncStr) = [start index; end index]
         dv_index_max;    % the maximal index
                 
-        % save a copy of the net object which contains the network topology
-        % as well as the boudary conditions
-        net;
-        
         % a matrix that contains all inequality constraints from all links
         Aineq;
         bineq;
@@ -49,7 +40,7 @@ classdef optProgram < handle
         
         H;  % for defining quadratic objective
         f;  % the linear objective
-
+        
     end
     
     
@@ -87,69 +78,60 @@ classdef optProgram < handle
         
         %===============================================================
         % set configuration for simulation
-        % input:
-        %       net: the network object
-        %       start_time: the start time of the simulation. Should be 0
-        %       end_time: the end time of this simulation
-        %       queue_limit: struct, .(linkStr), in meters,
-        %       e.g. if 0.5, then the queue must not extend to half link
-        function setConfig(self, net, start_time, end_time, queue_limit)
-            
-            self.net = net;
+        function setConfig(self, start_time, end_time)
             
             self.start_time = start_time;
             self.end_time = end_time;
-            self.queue_limit = queue_limit;
             
         end
         
         
         %===============================================================
         % set Linear constraints
-        function setConstraints(self, errors)
+        function setConstraints(self, net, errors)
             
             % set inequality for each link
-            for link = self.net.link_labels'
+            for link = net.link_labels'
                 
                 linkStr = sprintf('link_%d',link);
                 
                 % define the parameter struct
                 para = struct;
-                para.vf = self.net.network_hwy.(linkStr).para_vf;
-                para.w = self.net.network_hwy.(linkStr).para_w;
-                para.kc = self.net.network_hwy.(linkStr).para_kc;
-                para.km = self.net.network_hwy.(linkStr).para_km;
-                para.postm = self.net.network_hwy.(linkStr).para_postkm*1000;
+                para.vf = net.network_hwy.(linkStr).para_vf;
+                para.w = net.network_hwy.(linkStr).para_w;
+                para.kc = net.network_hwy.(linkStr).para_kc;
+                para.km = net.network_hwy.(linkStr).para_km;
+                para.postm = net.network_hwy.(linkStr).para_postkm*1000;
                 
                 % save and pass boundary condition in a struct
                 Boundary_con = struct;
-                Boundary_con.BC_us = self.net.network_hwy.(linkStr).BC_us;
-                Boundary_con.BC_ds = self.net.network_hwy.(linkStr).BC_ds;
-                Boundary_con.T_us = self.net.network_hwy.(linkStr).T_us;
-                Boundary_con.T_ds = self.net.network_hwy.(linkStr).T_ds;
+                Boundary_con.BC_us = net.network_hwy.(linkStr).BC_us;
+                Boundary_con.BC_ds = net.network_hwy.(linkStr).BC_ds;
+                Boundary_con.T_us = net.network_hwy.(linkStr).T_us;
+                Boundary_con.T_ds = net.network_hwy.(linkStr).T_ds;
                 
                 % save and pass initial condition in a struct 
                 Initial_con = struct;
-                Initial_con.IC = self.net.network_hwy.(linkStr).IC;
-                Initial_con.X_grid_cum = self.net.network_hwy.(linkStr).X_grid_cum;
+                Initial_con.IC = net.network_hwy.(linkStr).IC;
+                Initial_con.X_grid_cum = net.network_hwy.(linkStr).X_grid_cum;
                 
                 % save and pass internal trajectory conditions in a struct
                 Traj_con = struct;
-                if isfield(self.net.network_hwy.(linkStr), 'x_min_traj')
-                    Traj_con.x_min_traj = self.net.network_hwy.(linkStr).x_min_traj;
-                    Traj_con.x_max_traj = self.net.network_hwy.(linkStr).x_max_traj;
-                    Traj_con.t_min_traj = self.net.network_hwy.(linkStr).t_min_traj;
-                    Traj_con.t_max_traj = self.net.network_hwy.(linkStr).t_max_traj;
-                    Traj_con.v_meas_traj = self.net.network_hwy.(linkStr).v_meas_traj;
-                    Traj_con.r_meas_traj = self.net.network_hwy.(linkStr).r_meas_traj;
+                if isfield(net.network_hwy.(linkStr), 'x_min_traj')
+                    Traj_con.x_min_traj = net.network_hwy.(linkStr).x_min_traj;
+                    Traj_con.x_max_traj = net.network_hwy.(linkStr).x_max_traj;
+                    Traj_con.t_min_traj = net.network_hwy.(linkStr).t_min_traj;
+                    Traj_con.t_max_traj = net.network_hwy.(linkStr).t_max_traj;
+                    Traj_con.v_meas_traj = net.network_hwy.(linkStr).v_meas_traj;
+                    Traj_con.r_meas_traj = net.network_hwy.(linkStr).r_meas_traj;
                 end
                 % save and pass the density condition in a struct
                 Dens_con = struct;
-                if isfield(self.net.network_hwy.(linkStr), 'x_min_dens')
-                    Dens_con.x_min_dens = self.net.network_hwy.(linkStr).x_min_dens;
-                    Dens_con.x_max_dens = self.net.network_hwy.(linkStr).x_max_dens;
-                    Dens_con.t_dens = self.net.network_hwy.(linkStr).t_dens;
-                    Dens_con.dens_meas = self.net.network_hwy.(linkStr).dens_meas;
+                if isfield(net.network_hwy.(linkStr), 'x_min_dens')
+                    Dens_con.x_min_dens = net.network_hwy.(linkStr).x_min_dens;
+                    Dens_con.x_max_dens = net.network_hwy.(linkStr).x_max_dens;
+                    Dens_con.t_dens = net.network_hwy.(linkStr).t_dens;
+                    Dens_con.dens_meas = net.network_hwy.(linkStr).dens_meas;
                 end
                 
                 % set inequality constraints
@@ -162,35 +144,20 @@ classdef optProgram < handle
                 % Get the model and data constraints
                 link_model_constraints = constraints_ineq.setModelMatrix;
                 link_data_constraints = constraints_ineq.setDataMatrix;
-                % the trajectory constraints
                 if isempty(Traj_con) || isempty(fieldnames(Traj_con))
                     link_internal_constraints = [];
                 else
                     link_internal_constraints = constraints_ineq.setInternalConstraints;
                 end
-                % the density constraints
                 if isempty(Dens_con) || isempty(fieldnames(Dens_con))
                     link_density_constraints = [];
                 else
-                    link_density_constraints = ...
-                        constraints_ineq.setDensityConstraints;
-                end
-                % set up queue limit
-                if isfield(self.queue_limit, linkStr)
-                    link_queue_constraints = ...
-                        constraints_ineq.setQueueLimit(self.queue_limit.(linkStr));
-                elseif isfield(self.queue_limit, 'onramp') &&...
-                        strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
-                    link_queue_constraints = ...
-                        constraints_ineq.setQueueLimit(self.queue_limit.onramp);
-                else
-                    link_queue_constraints = [];
+                    link_density_constraints = constraints_ineq.setDensityConstraints;
                 end
                 
                 link_constraints = [link_model_constraints; ...
                                     link_internal_constraints;...
                                     link_density_constraints;...
-                                    link_queue_constraints;...
                                     link_data_constraints];
                 
                 % number of rows to be added in the constraints
@@ -216,18 +183,18 @@ classdef optProgram < handle
                 % add index for upstream boundary flows
                 self.dv_index.(linkStr).upstream(1,1)= self.dv_index_max + 1;
                 self.dv_index.(linkStr).upstream(2,1) = self.dv_index_max + ...
-                   length(self.net.network_hwy.(linkStr).BC_us);
-                self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).BC_us);
+                   length(net.network_hwy.(linkStr).BC_us);
+                self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).BC_us);
                 % add index for downstream boundary flows
                 self.dv_index.(linkStr).downstream(1,1) = self.dv_index_max + 1;
                 self.dv_index.(linkStr).downstream(2,1) = self.dv_index_max +...
-                   length(self.net.network_hwy.(linkStr).BC_ds);
-                self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).BC_ds);
+                   length(net.network_hwy.(linkStr).BC_ds);
+                self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).BC_ds);
                 % add index for initial densities
                 self.dv_index.(linkStr).initial(1,1) = self.dv_index_max + 1;
                 self.dv_index.(linkStr).initial(2,1) = self.dv_index_max + ...
-                    length(self.net.network_hwy.(linkStr).IC);
-                self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).IC);
+                    length(net.network_hwy.(linkStr).IC);
+                self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).IC);
                 % add index for internal conditions
                 if isempty(Traj_con) || isempty(fieldnames(Traj_con))
                     % No internal conditions, then do not set dv_index
@@ -235,14 +202,14 @@ classdef optProgram < handle
                     % For the vehicle ID
                     self.dv_index.(linkStr).internal_L(1,1) = self.dv_index_max + 1;
                     self.dv_index.(linkStr).internal_L(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).r_meas_traj);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).r_meas_traj);
+                        length(net.network_hwy.(linkStr).r_meas_traj);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).r_meas_traj);
                     
                     % For the passing rate
                     self.dv_index.(linkStr).internal_r(1,1) = self.dv_index_max + 1;
                     self.dv_index.(linkStr).internal_r(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).r_meas_traj);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).r_meas_traj);
+                        length(net.network_hwy.(linkStr).r_meas_traj);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).r_meas_traj);
                     
                 end
                 % add index for density conditions
@@ -252,14 +219,14 @@ classdef optProgram < handle
                     % For the vehicle ID
                     self.dv_index.(linkStr).density_L(1,1) = self.dv_index_max + 1;
                     self.dv_index.(linkStr).density_L(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).dens_meas);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).dens_meas);
+                        length(net.network_hwy.(linkStr).dens_meas);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).dens_meas);
                     
                     % For the density
                     self.dv_index.(linkStr).density_rho(1,1) = self.dv_index_max + 1;
                     self.dv_index.(linkStr).density_rho(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).dens_meas);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).dens_meas);
+                        length(net.network_hwy.(linkStr).dens_meas);
+                    self.dv_index_max = self.dv_index_max + length(net.network_hwy.(linkStr).dens_meas);
                 end  
                 
                 % For all the auxiliary boolean variables
@@ -288,7 +255,7 @@ classdef optProgram < handle
             
             % set equality for each junction using conservation
             % We did not preallocate memory for equality matrix
-            constraints_eq = setEqConstraints(self.net, self.dv_index, self.dv_index_max);
+            constraints_eq = setEqConstraints(net, self.dv_index, self.dv_index_max);
             self.Aeq = constraints_eq.EqMatrix;
             self.beq = 0*self.Aeq(:,1);
             self.size_Aeq = size(self.Aeq);
@@ -297,68 +264,68 @@ classdef optProgram < handle
             % which is the L1 norm e = |q1 - Rq2|
             % The priority parameter is only needed for merge and diverge.
             % The onrampjunc and offrampjunc are assumed to be controllable
-            for junc = self.net.junc_labels'
+            for junc = net.junc_labels'
 
                 % set up auxilary variables for e = q2-Rq1 at each merge
                 % or diverge
                 juncStr = sprintf('junc_%d',junc);
-                num_steps = length(self.net.network_junc.(juncStr).T);
+                num_steps = length(net.network_junc.(juncStr).T);
                 
-                if strcmp(self.net.network_junc.(juncStr).type_junc,'merge') ||...
-                   strcmp(self.net.network_junc.(juncStr).type_junc,'diverge')
+                if strcmp(net.network_junc.(juncStr).type_junc,'merge') ||...
+                   strcmp(net.network_junc.(juncStr).type_junc,'diverge')
                
                     self.dv_index.(juncStr) = zeros(2,1);
                     self.dv_index.(juncStr)(1) = self.dv_index_max + 1;
                     self.dv_index.(juncStr)(2) = self.dv_index_max + ...
-                        length(self.net.network_junc.(juncStr).T);
+                        length(net.network_junc.(juncStr).T);
                     self.dv_index_max = self.dv_index_max + ...
-                        length(self.net.network_junc.(juncStr).T);
+                        length(net.network_junc.(juncStr).T);
                 end
                 
                 % Add additional constraints e = |q1-Rq2|
                 tmpMatrix = zeros(0, self.dv_index_max);
                     
-                if strcmp(self.net.network_junc.(juncStr).type_junc,'merge')
+                if strcmp(net.network_junc.(juncStr).type_junc,'merge')
                         
                     % parameter conditions
-                    R_priority = self.net.network_junc.(juncStr).ratio(2)...
-                        /self.net.network_junc.(juncStr).ratio(1);
+                    R_priority = net.network_junc.(juncStr).ratio(2)...
+                        /net.network_junc.(juncStr).ratio(1);
                     
                     for step = 1:num_steps
                             
                         num_row = size(tmpMatrix,1);
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).inlabel(2));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).inlabel(2));
                         tmpMatrix(num_row+1, self.dv_index.(linkStr).downstream(1,1) + step - 1)= -1;
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).inlabel(1));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).inlabel(1));
                         tmpMatrix(num_row+1, self.dv_index.(linkStr).downstream(1,1) + step - 1)= R_priority;
                         tmpMatrix(num_row+1, self.dv_index.(juncStr)(1) - 1 + step)= 1;
                         
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).inlabel(2));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).inlabel(2));
                         tmpMatrix(num_row+2, self.dv_index.(linkStr).downstream(1,1) + step - 1)= 1;
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).inlabel(1));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).inlabel(1));
                         tmpMatrix(num_row+2, self.dv_index.(linkStr).downstream(1,1) + step - 1)= -R_priority;
                         tmpMatrix(num_row+2, self.dv_index.(juncStr)(1) - 1 + step)= 1;
                              
                     end
                     
-                elseif strcmp(self.net.network_junc.(juncStr).type_junc,'diverge')
+                elseif strcmp(net.network_junc.(juncStr).type_junc,'diverge')
                     
                     % parameter conditions
-                    R_priority = self.net.network_junc.(juncStr).ratio(2)...
-                        /self.net.network_junc.(juncStr).ratio(1);
+                    R_priority = net.network_junc.(juncStr).ratio(2)...
+                        /net.network_junc.(juncStr).ratio(1);
                     
                     for step = 1:num_steps
                             
                         num_row = size(tmpMatrix,1);
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).outlabel(2));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).outlabel(2));
                         tmpMatrix(num_row+1, self.dv_index.(linkStr).upstream(1,1) + step-1)= -1;
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).outlabel(1));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).outlabel(1));
                         tmpMatrix(num_row+1, self.dv_index.(linkStr).upstream(1,1) + step-1)= R_priority;
                         tmpMatrix(num_row+1, self.dv_index.(juncStr)(1) - 1 + step)= 1;
                         
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).outlabel(2));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).outlabel(2));
                         tmpMatrix(num_row+2, self.dv_index.(linkStr).upstream(1,1) + step-1)= 1;
-                        linkStr = sprintf('link_%d',self.net.network_junc.(juncStr).outlabel(1));
+                        linkStr = sprintf('link_%d',net.network_junc.(juncStr).outlabel(1));
                         tmpMatrix(num_row+2, self.dv_index.(linkStr).upstream(1,1) + step-1)= -R_priority;
                         tmpMatrix(num_row+2, self.dv_index.(juncStr)(1) - 1 + step)= 1;
 
@@ -391,7 +358,7 @@ classdef optProgram < handle
             
             % set upper and lower bounds for initial and boundary condition
             % variables.
-            for link = self.net.link_labels'
+            for link = net.link_labels'
                 
                 linkStr = sprintf('link_%d',link);
                 
@@ -399,14 +366,14 @@ classdef optProgram < handle
                 self.lb(self.dv_index.(linkStr).upstream(1,1):self.dv_index.(linkStr).upstream(2,1)) = 0;
                 self.lb(self.dv_index.(linkStr).downstream(1,1):self.dv_index.(linkStr).downstream(2,1)) = 0;
                 self.ub(self.dv_index.(linkStr).upstream(1,1):self.dv_index.(linkStr).upstream(2,1)) = ...
-                    1.0*self.net.network_hwy.(linkStr).para_qmax;
+                    1.0*net.network_hwy.(linkStr).para_qmax;
                 self.ub(self.dv_index.(linkStr).downstream(1,1):self.dv_index.(linkStr).downstream(2,1)) = ...
-                    1.0*self.net.network_hwy.(linkStr).para_qmax;
+                    1.0*net.network_hwy.(linkStr).para_qmax;
                                 
                 % For initial conditions
                 self.lb(self.dv_index.(linkStr).initial(1,1):self.dv_index.(linkStr).initial(2,1)) = 0;
                 self.ub(self.dv_index.(linkStr).initial(1,1):self.dv_index.(linkStr).initial(2,1)) = ...
-                    1.0*self.net.network_hwy.(linkStr).para_km;
+                    1.0*net.network_hwy.(linkStr).para_km;
                 
                 % For internal condition: L and r; just put large values
                 % here until we get more heuristic knowlege on their range
@@ -424,7 +391,7 @@ classdef optProgram < handle
                     self.ub(self.dv_index.(linkStr).density_L(1,1):self.dv_index.(linkStr).density_L(2,1)) =  inf;
                     self.lb(self.dv_index.(linkStr).density_rho(1,1):self.dv_index.(linkStr).density_rho(2,1)) = 0;
                     self.ub(self.dv_index.(linkStr).density_rho(1,1):self.dv_index.(linkStr).density_rho(2,1)) =  ...
-                        1.0*self.net.network_hwy.(linkStr).para_km;
+                        1.0*net.network_hwy.(linkStr).para_km;
                 end
                 
                 % For boolean variables
@@ -443,10 +410,10 @@ classdef optProgram < handle
             
             % set the upper and lower bound for auxiliary vairlabels e at
             % junctions
-            for junc = self.net.junc_labels'
+            for junc = net.junc_labels'
                 
-                if strcmp(self.net.network_junc.(juncStr).type_junc,'merge') ||...
-                        strcmp(self.net.network_junc.(juncStr).type_junc,'diverge')
+                if strcmp(net.network_junc.(juncStr).type_junc,'merge') ||...
+                        strcmp(net.network_junc.(juncStr).type_junc,'diverge')
                     juncStr = sprintf('junc_%d',junc);
                     
                     self.lb( self.dv_index.(juncStr)(1):self.dv_index.(juncStr)(2)) = 0;
@@ -457,7 +424,7 @@ classdef optProgram < handle
             
             % set variable type, here assume all continuous except bools
             self.ctype(1:self.dv_index_max) = 'C';
-            for link = self.net.link_labels'
+            for link = net.link_labels'
                 
                 linkStr = sprintf('link_%d', link);
                 
@@ -513,21 +480,18 @@ classdef optProgram < handle
         % min sum  -w(i)T(i)*(alpha*(q1(i)+q2(i)) - beta*|q2(i)-R*q1(i)|))...
         % need w(i) > w(i+1) while alpha and beta satisfying conditions
         % input:
+        %       network: the network object
         %       junction: nx1 vector, the junctions that we want to add
         %           entropic condition; NOTE: for now, the theory only
         %           support one junction
-        function addEntropy(self, junction)
-            
-            if strcmp(junction, 'all')
-                junction = self.net.junc_labels;
-            end
+        function addEntropy(self, net, junction)
             
             for junc = junction'
                                 
                 juncStr = sprintf('junc_%d',junc);
                 
                 % parameters for setting entropic condition at junctions
-                num_steps = length(self.net.network_junc.(juncStr).T);
+                num_steps = length(net.network_junc.(juncStr).T);
                                 
                 % initialize the objective function
                 if isempty(self.f) 
@@ -536,31 +500,31 @@ classdef optProgram < handle
                 end
                 
                 % if connection
-                if strcmp(self.net.network_junc.(juncStr).type_junc, 'connection')
+                if strcmp(net.network_junc.(juncStr).type_junc, 'connection')
                                         
-                    linkStr = sprintf('link_%d', self.net.network_junc.(juncStr).inlabel); 
+                    linkStr = sprintf('link_%d', net.network_junc.(juncStr).inlabel); 
                     
                     % for a connection, simply put a linear weight
                     f_junc = zeros(self.dv_index_max, 1);
                     f_junc(self.dv_index.(linkStr).downstream(1,1):...
                             self.dv_index.(linkStr).downstream(2,1),1) =...
-                            -(num_steps:-1:1)'.*self.net.network_junc.(juncStr).T;
+                            -(num_steps:-1:1)'.*net.network_junc.(juncStr).T;
                         
                     self.f = self.f + f_junc;
                     
                 % if it is an onrampjunc, need to guarantee entropic
                 % solution from upstream freeway to downstream freeway
-                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
+                elseif strcmp(net.network_junc.(juncStr).type_junc, 'onrampjunc')
                     
-                    inlinks = self.net.network_junc.(juncStr).inlabel;
+                    inlinks = net.network_junc.(juncStr).inlabel;
                     
                     % find the upstream freeway
                     linkStr = sprintf('link_%d',inlinks(1));
-                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                    if strcmp(net.network_hwy.(linkStr).para_linktype, 'freeway')
                         upFreewayStr = linkStr;
                     else
                         linkStr = sprintf('link_%d',inlinks(2));
-                        if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                        if strcmp(net.network_hwy.(linkStr).para_linktype, 'freeway')
                             upFreewayStr = linkStr;
                         else
                             error('ERROR: Junction %d is defined as an onramp junction without an onramp.\n',...
@@ -572,24 +536,24 @@ classdef optProgram < handle
                     f_junc = zeros(self.dv_index_max, 1);
                     f_junc(self.dv_index.(upFreewayStr).downstream(1,1):...
                             self.dv_index.(upFreewayStr).downstream(2,1),1) =...
-                            -(num_steps:-1:1)'.*self.net.network_junc.(juncStr).T;
+                            -(num_steps:-1:1)'.*net.network_junc.(juncStr).T;
                         
                     self.f = self.f + f_junc;
                     
                 
                 % if it is an offrampjunc, need to guarantee entropic
                 % solution from upstream freeway to downstream freeway
-                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'offrampjunc')
+                elseif strcmp(net.network_junc.(juncStr).type_junc, 'offrampjunc')
                     
-                    outlinks = self.net.network_junc.(juncStr).outlabel;
+                    outlinks = net.network_junc.(juncStr).outlabel;
                     
                     % find the upstream freeway
                     linkStr = sprintf('link_%d',outlinks(1));
-                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                    if strcmp(net.network_hwy.(linkStr).para_linktype, 'freeway')
                         downFreewayStr = linkStr;
                     else
                         linkStr = sprintf('link_%d',outlinks(2));
-                        if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                        if strcmp(net.network_hwy.(linkStr).para_linktype, 'freeway')
                             downFreewayStr = linkStr;
                         else
                             error('ERROR: Junction %d is defined as an offramp junction without an offramp.\n',...
@@ -601,15 +565,15 @@ classdef optProgram < handle
                     f_junc = zeros(self.dv_index_max, 1);
                     f_junc(self.dv_index.(downFreewayStr).downstream(1,1):...
                             self.dv_index.(downFreewayStr).downstream(2,1),1) =...
-                            -(num_steps:-1:1)'.*self.net.network_junc.(juncStr).T;
+                            -(num_steps:-1:1)'.*net.network_junc.(juncStr).T;
                         
                     self.f = self.f + f_junc;
                         
                     
                 % if merge/diverge For each Merge or diverge junction, 
                 % we add varaibel e = |q2-Rq1| for each step
-                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'merge') ||...
-                       strcmp(self.net.network_junc.(juncStr).type_junc, 'diverge') 
+                elseif strcmp(net.network_junc.(juncStr).type_junc, 'merge') ||...
+                       strcmp(net.network_junc.(juncStr).type_junc, 'diverge') 
                     
                     % H is the matrix for defining quadratic functions
                     if isempty(self.H)
@@ -624,14 +588,14 @@ classdef optProgram < handle
                     f_junc = zeros(self.dv_index_max ,1);
                     
                     % parameter conditions
-                    R_priority = self.net.network_junc.(juncStr).ratio(2)...
-                        /self.net.network_junc.(juncStr).ratio(1);
+                    R_priority = net.network_junc.(juncStr).ratio(2)...
+                        /net.network_junc.(juncStr).ratio(1);
                     
                     beta = 1;
                     
                     % compute the alpha and exponential factor
                     % see derive_parameters.pdf for details.
-                    T_junc = self.net.network_junc.(juncStr).T;
+                    T_junc = net.network_junc.(juncStr).T;
                     if R_priority <= 1
                         % Given beta = 1
                         alpha = 2 + R_priority;
@@ -651,17 +615,17 @@ classdef optProgram < handle
                     
                     % add entropic objective component
                     % sum -w(i)T(i)alpha{q1(i)+q2(i)}
-                    if strcmp(self.net.network_junc.(juncStr).type_junc,'merge')
+                    if strcmp(net.network_junc.(juncStr).type_junc,'merge')
                         % entropy condition:
-                        for link = self.net.network_junc.(juncStr).inlabel'
+                        for link = net.network_junc.(juncStr).inlabel'
                             linkStr = sprintf('link_%d', link);
                             f_junc(self.dv_index.(linkStr).downstream(1,1):...
                                 self.dv_index.(linkStr).downstream(2,1),1) =...
                                 weight.*T_junc;
                         end
-                    elseif strcmp(self.net.network_junc.(juncStr).type_junc,'diverge')
+                    elseif strcmp(net.network_junc.(juncStr).type_junc,'diverge')
                         % entropy condition:
-                        for link = self.net.network_junc.(juncStr).outlabel'
+                        for link = net.network_junc.(juncStr).outlabel'
                             f_junc(self.dv_index.(linkStr).upstream(1,1):...
                                 self.dv_index.(linkStr).upstream(2,1),1) =...
                                 weight.*T_junc;
@@ -697,7 +661,7 @@ classdef optProgram < handle
                 
                 linkStr = sprintf('link_%d', link);
                 
-                T_grid = self.net.network_hwy.(linkStr).T_us;
+                T_grid = net.network_hwy.(linkStr).T_us;
             
                 num_steps = length(T_grid);
                 f_upflow(self.dv_index.(linkStr).upstream(1,1):...
@@ -711,10 +675,7 @@ classdef optProgram < handle
         
         %===============================================================
         % maximize downstream flow for one link
-        % This is to prevent the congestion in the main exit. 
-        % weight: a very small weight since this is just to deal with the
-        %         is not the main objective
-        function maxDownflow(self, links, weight)
+        function maxDownflow(self, net, links)
             
             if isempty(self.f)
                 % if not defiend by any function yet
@@ -727,11 +688,11 @@ classdef optProgram < handle
                 
                 linkStr = sprintf('link_%d', link);
                 
-                T_grid = self.net.network_hwy.(linkStr).T_ds;
+                T_grid = net.network_hwy.(linkStr).T_ds;
             
                 num_steps = length(T_grid);
                 f_downflow(self.dv_index.(linkStr).downstream(1,1):...
-                         self.dv_index.(linkStr).downstream(2,1)) = -(num_steps:-1:1)'.*T_grid*weight;
+                         self.dv_index.(linkStr).downstream(2,1)) = -(num_steps:-1:1)'.*T_grid;
             end
             
             self.f = self.f + f_downflow;
@@ -741,7 +702,7 @@ classdef optProgram < handle
         
         %===============================================================
         % minimize downstream flow for one link
-        function minDownflow(self, links)
+        function minDownflow(self, net, links)
             
             if isempty(self.f)
                 % if not defiend by any function yet
@@ -754,7 +715,7 @@ classdef optProgram < handle
                 
                 linkStr = sprintf('link_%d', link);
                 
-                T_grid = self.net.network_hwy.(linkStr).T_ds;
+                T_grid = net.network_hwy.(linkStr).T_ds;
             
                 num_steps = length(T_grid);
                 f_downflow(self.dv_index.(linkStr).downstream(1,1):...
@@ -762,50 +723,6 @@ classdef optProgram < handle
             end
             
             self.f = self.f - f_downflow;
- 
-        end
-        
-        
-        %===============================================================
-        % maxmize the onramp flow
-        % NOTE: set the entropy condition first, then set the maximize
-        % onramp flow objective. the weight for the onramp flow must be
-        % smaller than the entropy condition weight
-        function maxOnrampFlow(self, links)
-            
-            if isempty(self.f)
-               error('The entropy condition for the onrampjunc must be set first')
-            end
-            
-            % negative values
-            max_weight = max(self.f(self.f<0));
-            
-            f_downflow = zeros(self.dv_index_max,1);
-            
-            if strcmp(links, 'all')
-                
-                links = self.net.link_labels;
-                
-            end
-            
-            
-            for link = links'
-                
-                linkStr = sprintf('link_%d', link);
-                
-                % skip links that are not onramps
-                if ~strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
-                    continue
-                end
-                
-                % T_grid = self.net.network_hwy.(linkStr).T_ds;
-                % num_steps = length(T_grid);
-                f_downflow(self.dv_index.(linkStr).downstream(1,1):...
-                         self.dv_index.(linkStr).downstream(2,1)) = ...
-                         max_weight/2;
-            end
-            
-            self.f = self.f + f_downflow;
  
         end
         
@@ -850,7 +767,7 @@ classdef optProgram < handle
         %      0  -1  1];
         % quad_matrix(1) returns [0];
         % quad_matrix(0) returns [] and warning;
-        function [M] = quad_matrix(~, n)
+        function [M] = quad_matrix(self, n)
             
             if n==0
                 sprintf('Warning: Regularization over an empty variable sequence.\n');

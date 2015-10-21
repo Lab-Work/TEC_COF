@@ -37,12 +37,14 @@ Details:
 
 
 
+- Oct 21
+20. If no data, then MATLAB just auto discretizes the time and space, and then simulate.
+21. updateDiscretization T_junc should contain the fixed boundary discretization in the past period and the updated boundary grid in the predicted period
+20. Build a link index in setineqConstraints for better tracking the position of each decision variable.
+21. Added a soft queue limit constraints.
+
 Todo:
 - auto logging with time stamps
-- Write a python script for to test if the toolbox works for control
--. MATLAB toolbox now only works if historical data is set. Added more flexibility, such as if no data, than just auto discretize the time and space, and then simulate.
-- updateDiscretization T_junc should contain the fixed boundary discretization in the past period and the updated boundary grid in the predicted period
-
 
 Issues:
 - The upper and lower bound for internal and density decision variables are set as -inf and inf. To investigate a little bit more to learn a realistic range.
