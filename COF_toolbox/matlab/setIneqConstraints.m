@@ -57,7 +57,8 @@ classdef setIneqConstraints
                      % .internal_L; .internal_r; 
                      % .density_L; .density_rho;
                      % .queue_L; .queue_s
-        dv_max;      % keep track of the maximal index
+        dv_max;      % keep track of the maximal index including the bools
+        dv_var_max; % the maximum index for link float variables (not the bools)
         
         num_us_con;  % num of upstream boundary conditions
         num_ds_con;  % num of downstream boundary conditions
@@ -246,6 +247,11 @@ classdef setIneqConstraints
             end
             
             if ~isnan(soft_queue_limit)
+                
+                if self.num_internal_con ~= 0 || self.num_density_con ~= 0
+                    error('Current version does not support soft queue limit with internal or density condition.')
+                end
+                
                 tmp_grid = self.start_time:30:self.end_time;
                 if tmp_grid(end)~= self.end_time
                     tmp_grid = [tmp_grid'; self.end_time];
@@ -265,6 +271,7 @@ classdef setIneqConstraints
                 self.dv_link.queue_L = [NaN; NaN];
                 self.dv_link.queue_s = [NaN; NaN];
             end            
+            self.dv_var_max = self.dv_max;
             
             % set road parameters
             self.v = para.vf;
@@ -275,15 +282,7 @@ classdef setIneqConstraints
             self.start_time = start_time;
             self.now_time = now_time;
             self.end_time = end_time;
-            
-            % For some auxiliary variabels which can be helpful when
-            % defining objectives.
-            self.num_aux = 0;
-            
-            % initialize the number of boolean variabels as 0
-            self.num_bool = 0;
-            
-            
+                        
             % set the errors
             if isfield(errors, 'e_his')
                 self.e_his = errors.e_his;
@@ -391,26 +390,60 @@ classdef setIneqConstraints
             else
                 self.indiced_rho_ini = [];
             end
-
-            self.size_row = self.num_us_con + self.num_ds_con +...
-                            self.num_initial_con + ...
-                            2*self.num_internal_con + ...
-                            2*self.num_density_con + ...
-                            2*self.num_soft_queue_pt + 1; 
+            
                       
-            %This row size if defined as a temporary one to compute the number of needed binary variables
+            % Compute how many bool variables are needed if internal or
+            % density conditions exist
             [self.nb_min_traj, self.nb_max_traj, self.nb_min_dens, self.nb_max_dens] = self.getBinaryvar;
             
-            self.size_row = self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                            2*self.num_internal_con + 2*self.num_density_con + ...
-                            2*self.num_soft_queue_pt + ...
-                            sum(self.nb_min_traj) + sum(self.nb_max_traj) + ...
-                            sum(self.nb_min_dens) + sum(self.nb_max_dens) + ...
-                            sum(self.num_aux) + 1; 
-                        
+            % index for bools
+            % trajectory min points bools
+            if sum(self.nb_min_traj) ~= 0
+                self.dv_link.bool_internal_min = [self.dv_max+1;...
+                                                  self.dv_max+sum(self.nb_min_traj)];
+                self.dv_max = self.dv_max + sum(self.nb_min_traj);
+            else
+                self.dv_link.book_internal_min = [NaN; NaN];
+            end
+            % trajectory max points bools
+            if sum(self.nb_max_traj) ~= 0
+                self.dv_link.bool_internal_max = [self.dv_max+1;...
+                                                  self.dv_max+sum(self.nb_max_traj)];
+                self.dv_max = self.dv_max + sum(self.nb_max_traj);
+            else
+                self.dv_link.book_internal_max = [NaN; NaN];
+            end
+            % density min points bools
+            if sum(self.nb_min_dens) ~= 0
+                self.dv_link.bool_density_min = [self.dv_max+1;...
+                                                  self.dv_max+sum(self.nb_min_dens)];
+                self.dv_max = self.dv_max + sum(self.nb_min_dens);
+            else
+                self.dv_link.book_density_min = [NaN; NaN];
+            end
+            % density max points bools
+            if sum(self.nb_max_dens) ~= 0
+                self.dv_link.bool_density_max = [self.dv_max+1;...
+                                                  self.dv_max+sum(self.nb_max_dens)];
+                self.dv_max = self.dv_max + sum(self.nb_max_dens);
+            else
+                self.dv_link.book_density_max = [NaN; NaN];
+            end
+            
+            % keep indexing all the bools 
             self.num_bool = sum(self.nb_min_traj) + sum(self.nb_max_traj) + ...
                             sum(self.nb_min_dens) + sum(self.nb_max_dens);
+            if self.num_bool ~= 0
+                self.dv_link.bool_all = [self.dv_var_max+1;...
+                                         self.dv_var_max+self.num_bool];
+            else
+                self.dv_link.bool_all = [NaN; NaN];
+            end
             
+            % the last 1 is the right hand side constant for the
+            % construction of the linear constraints
+            self.size_row = self.dv_max + 1; 
+
         end
         
         
