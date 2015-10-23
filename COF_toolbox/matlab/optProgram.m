@@ -1,7 +1,8 @@
 % Yanning Li, Sep 01, 2015
-% This class construct a the optimization program. It sets the linear
-% constraints of the optimization program, has multiple functions to set
-% the objective function, and solve the program using cplex.
+% This class construct the optimization program.
+% 1. The program use relative time: start time is always 0.
+% 2. Calls setIneqConstraints and setEqConstraints to set constraints
+% 3. A couple of function to properly construct objective functions.
 
 
 classdef optProgram < handle
@@ -9,12 +10,24 @@ classdef optProgram < handle
     properties
         % configuration
         start_time;        % always 0
+        
+        % 1. now_time is used to set the data constraints separately:
+        %   measurement or historical
+        % 2. Reduce the number of constraints: do not try to control the
+        %   past
+        now_time;   
         end_time;
         
         % set hard constraints of the queue limit
         % a struct; .(linkStr) = maximal queue length in meters
         %          or .onramp sets the ratio for all onramps
-        queue_limit;    
+        hard_queue_limit;  
+        
+        % set soft queue limit constraints
+        % a struct: .(linkStr) = the queue limit length in meters
+        soft_queue_limit;
+        q_weight;   % this keeps track of the weight penalized on the upstream
+                    % flow when using soft queue limit
         
         % Decision variable locator, a atruct
         % dv_index.(linkStr).upstream; .downstream; .initial; ... 
@@ -57,7 +70,7 @@ classdef optProgram < handle
         % initialize object
         function self = optProgram(~)
             self.start_time = 0;
-            
+            self.now_time = 0;
             self.end_time = 0;
             
             self.dv_index = struct;
@@ -89,16 +102,33 @@ classdef optProgram < handle
         % input:
         %       net: the network object
         %       start_time: the start time of the simulation. Should be 0
+        %       now_time, the current time for the simulation.
         %       end_time: the end time of this simulation
-        %       queue_limit: struct, .(linkStr), in meters,
+        %       hard_queue_limit: struct, .(linkStr), in meters,
+        %       soft_queue_limit: struct, .(linkStr), in meters,
         %       e.g. if 0.5, then the queue must not extend to half link
-        function setConfig(self, net, start_time, end_time, queue_limit)
+        function setConfig(self, net, start_time, now_time,...
+                end_time, hard_queue_limit, soft_queue_limit)
             
             self.net = net;
             
             self.start_time = start_time;
+            self.now_time = now_time;
             self.end_time = end_time;
-            self.queue_limit = queue_limit;
+            if ~isstruct(hard_queue_limit)
+                warning('hard_queue_limit should be a struct')
+                self.hard_queue_limit = struct; % empty struct
+            else
+                self.hard_queue_limit = hard_queue_limit;
+            end
+            if ~isstruct(soft_queue_limit)
+                warning('soft_queue_limit should be a struct')
+                self.soft_queue_limit = struct;
+                self.q_weight = [];
+            else
+                self.soft_queue_limit = soft_queue_limit;
+            end
+            
             
         end
         
@@ -150,46 +180,66 @@ classdef optProgram < handle
                     Dens_con.t_dens = self.net.network_hwy.(linkStr).t_dens;
                     Dens_con.dens_meas = self.net.network_hwy.(linkStr).dens_meas;
                 end
+                % set the soft queue limit
+                if isfield(self.soft_queue_limit, linkStr)
+                    soft_queue_length = self.soft_queue_limit.(linkStr);
+                else
+                    soft_queue_length = NaN;
+                end
                 
                 % set inequality constraints
-                constraints_ineq = setIneqConstraints(...
+                Ineq = setIneqConstraints(...
                     para,...
-                    self.start_time, self.start_time ,self.end_time,...
-                    Boundary_con, Initial_con, Traj_con, Dens_con, NaN,...
+                    self.start_time, self.now_time ,self.end_time,...
+                    Boundary_con, Initial_con, Traj_con, Dens_con,...
+                    soft_queue_length,...
                     errors);
                 
                 % Get the model and data constraints
-                link_model_constraints = constraints_ineq.setModelMatrix;
-                link_data_constraints = constraints_ineq.setDataMatrix;
+                link_model_constraints = Ineq.setModelMatrix;
+                link_data_constraints = Ineq.setDataMatrix;
                 % the trajectory constraints
                 if isempty(Traj_con) || isempty(fieldnames(Traj_con))
                     link_internal_constraints = [];
                 else
-                    link_internal_constraints = constraints_ineq.setInternalConstraints;
+                    link_internal_constraints = Ineq.setInternalConstraints;
                 end
                 % the density constraints
                 if isempty(Dens_con) || isempty(fieldnames(Dens_con))
                     link_density_constraints = [];
                 else
                     link_density_constraints = ...
-                        constraints_ineq.setDensityConstraints;
-                end
-                % set up queue limit
-                if isfield(self.queue_limit, linkStr)
-                    link_queue_constraints = ...
-                        constraints_ineq.setQueueLimit(self.queue_limit.(linkStr));
-                elseif isfield(self.queue_limit, 'onramp') &&...
-                        strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
-                    link_queue_constraints = ...
-                        constraints_ineq.setQueueLimit(self.queue_limit.onramp);
-                else
-                    link_queue_constraints = [];
+                        Ineq.setDensityConstraints;
                 end
                 
+                % set up hard queue limit
+                if isfield(self.hard_queue_limit, linkStr)
+                    link_hard_queue_constraints = ...
+                        Ineq.setHardQueueLimit(self.hard_queue_limit.(linkStr));
+                elseif isfield(self.hard_queue_limit, 'onramp') &&...
+                        strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
+                    link_hard_queue_constraints = ...
+                        Ineq.setHardQueueLimit(self.hard_queue_limit.onramp);
+                else
+                    link_hard_queue_constraints = [];
+                end
+                
+                % set up soft queue limit
+                [link_soft_queue_constraints, q_weight_link] = Ineq.setSoftQueueLimit;
+                
+                % soft queue limit now only support this specific scenario,
+                % where the soft queue limit is applied in the downstream
+                % merge
+                if ~isempty(q_weight_link)
+                    self.q_weight = q_weight_link;
+                end
+                
+                % all constraints for this link
                 link_constraints = [link_model_constraints; ...
                                     link_internal_constraints;...
                                     link_density_constraints;...
-                                    link_queue_constraints;...
+                                    link_hard_queue_constraints;...
+                                    link_soft_queue_constraints;
                                     link_data_constraints];
                 
                 % number of rows to be added in the constraints
@@ -211,74 +261,29 @@ classdef optProgram < handle
                 % update Aineq matrix size
                 self.size_Aineq = self.size_Aineq + [num_row_constraints, num_col_constraints];
                 
-                % update index for decision variable
-                % add index for upstream boundary flows
-                self.dv_index.(linkStr).upstream(1,1)= self.dv_index_max + 1;
-                self.dv_index.(linkStr).upstream(2,1) = self.dv_index_max + ...
-                   length(self.net.network_hwy.(linkStr).BC_us);
-                self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).BC_us);
-                % add index for downstream boundary flows
-                self.dv_index.(linkStr).downstream(1,1) = self.dv_index_max + 1;
-                self.dv_index.(linkStr).downstream(2,1) = self.dv_index_max +...
-                   length(self.net.network_hwy.(linkStr).BC_ds);
-                self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).BC_ds);
-                % add index for initial densities
-                self.dv_index.(linkStr).initial(1,1) = self.dv_index_max + 1;
-                self.dv_index.(linkStr).initial(2,1) = self.dv_index_max + ...
-                    length(self.net.network_hwy.(linkStr).IC);
-                self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).IC);
-                % add index for internal conditions
-                if isempty(Traj_con) || isempty(fieldnames(Traj_con))
-                    % No internal conditions, then do not set dv_index
-                else
-                    % For the vehicle ID
-                    self.dv_index.(linkStr).internal_L(1,1) = self.dv_index_max + 1;
-                    self.dv_index.(linkStr).internal_L(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).r_meas_traj);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).r_meas_traj);
-                    
-                    % For the passing rate
-                    self.dv_index.(linkStr).internal_r(1,1) = self.dv_index_max + 1;
-                    self.dv_index.(linkStr).internal_r(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).r_meas_traj);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).r_meas_traj);
-                    
+                % update index for decision variable for linkStr
+                self.dv_index.(linkStr).upstream = Ineq.dv_link.upstream + self.dv_index_max;
+                self.dv_index.(linkStr).downstream = Ineq.dv_link.downstream + self.dv_index_max;
+                self.dv_index.(linkStr).initial = Ineq.dv_link.initial + self.dv_index_max;
+                if isfield(Ineq.dv_link, 'internal_L')
+                    self.dv_index.(linkStr).internal_L = Ineq.dv_link.internal_L + self.dv_index_max;
+                    self.dv_index.(linkStr).internal_r = Ineq.dv_link.internal_r + self.dv_index_max;
                 end
-                % add index for density conditions
-                if isempty(Dens_con) || isempty(fieldnames(Dens_con))
-                    % no density condition, do nothing
-                else
-                    % For the vehicle ID
-                    self.dv_index.(linkStr).density_L(1,1) = self.dv_index_max + 1;
-                    self.dv_index.(linkStr).density_L(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).dens_meas);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).dens_meas);
-                    
-                    % For the density
-                    self.dv_index.(linkStr).density_rho(1,1) = self.dv_index_max + 1;
-                    self.dv_index.(linkStr).density_rho(2,1) = self.dv_index_max + ...
-                        length(self.net.network_hwy.(linkStr).dens_meas);
-                    self.dv_index_max = self.dv_index_max + length(self.net.network_hwy.(linkStr).dens_meas);
-                end  
-                
-                % For all the auxiliary boolean variables
-                if constraints_ineq.num_bool ~= 0
-                    self.dv_index.(linkStr).bool(1,1) = self.dv_index_max + 1;
-                    self.dv_index.(linkStr).bool(2,1) = self.dv_index_max + ...
-                        constraints_ineq.num_bool;
-                    self.dv_index_max = self.dv_index_max + constraints_ineq.num_bool;
+                if isfield(Ineq.dv_link, 'density_L')
+                    self.dv_index.(linkStr).density_L = Ineq.dv_link.density_L + self.dv_index_max;
+                    self.dv_index.(linkStr).density_rho = Ineq.dv_link.density_rho + self.dv_index_max;
                 end
-                
-                % For all other auxiliary variables used to define the
-                % objective function
-                if constraints_ineq.num_aux ~= 0
-                    self.dv_index.(linkStr).aux(1,1) = self.dv_index_max + 1;
-                    self.dv_index.(linkStr).aux(2,1) = self.dv_index_max + ...
-                        constraints_ineq.num_aux;
-                    self.dv_index_max = self.dv_index_max + constraints_ineq.num_aux;
+                if isfield(Ineq.dv_link, 'queue_L')
+                    self.dv_index.(linkStr).queue_L = Ineq.dv_link.queue_L + self.dv_index_max;
+                    self.dv_index.(linkStr).queue_s = Ineq.dv_link.queue_s + self.dv_index_max;
                 end
-                
-                
+                if isfield(Ineq.dv_link, 'bool_all')
+                    self.dv_index.(linkStr).bool = Ineq.dv_link.bool_all + self.dv_index_max;
+                end
+                self.dv_index_max = self.dv_index_max + Ineq.dv_max;
+                % This is needed to properly set up the upper bound
+                self.dv_index.(linkStr).num_step_past_us = Ineq.dv_link.num_step_past_us;
+                self.dv_index.(linkStr).num_step_past_ds = Ineq.dv_link.num_step_past_ds;
             end
             
             % save the maximal index for the decision variable associated
@@ -287,8 +292,8 @@ classdef optProgram < handle
             
             % set equality for each junction using conservation
             % We did not preallocate memory for equality matrix
-            constraints_eq = setEqConstraints(self.net, self.dv_index, self.dv_index_max);
-            self.Aeq = constraints_eq.EqMatrix;
+            Eq = setEqConstraints(self.net, self.dv_index, self.dv_index_max);
+            self.Aeq = Eq.EqMatrix;
             self.beq = 0*self.Aeq(:,1);
             self.size_Aeq = size(self.Aeq);
             
@@ -426,18 +431,20 @@ classdef optProgram < handle
                         1.0*self.net.network_hwy.(linkStr).para_km;
                 end
                 
+                % For soft queu
+                if isfield(self.dv_index.(linkStr), 'queue_L')
+                    self.lb(self.dv_index.(linkStr).queue_L(1,1):self.dv_index.(linkStr).queue_L(2,1)) = -inf;
+                    self.ub(self.dv_index.(linkStr).queue_L(1,1):self.dv_index.(linkStr).queue_L(2,1)) =  inf;
+                    self.lb(self.dv_index.(linkStr).queue_s(1,1):self.dv_index.(linkStr).queue_s(2,1)) = 0;
+                    self.ub(self.dv_index.(linkStr).queue_s(1,1):self.dv_index.(linkStr).queue_s(2,1)) =  inf;
+                end
+                
                 % For boolean variables
                 if isfield(self.dv_index.(linkStr), 'bool')
                     self.lb(self.dv_index.(linkStr).bool(1,1):self.dv_index.(linkStr).bool(2,1)) = 0;
                     self.ub(self.dv_index.(linkStr).bool(1,1):self.dv_index.(linkStr).bool(2,1)) = 1;
                 end
-                
-                % For auxiliary variables
-                if isfield(self.dv_index.(linkStr), 'aux')
-                    self.lb(self.dv_index.(linkStr).aux(1,1):self.dv_index.(linkStr).aux(2,1)) = -inf;
-                    self.ub(self.dv_index.(linkStr).aux(1,1):self.dv_index.(linkStr).aux(2,1)) =  inf;
-                end
-                
+ 
             end
             
             % set the upper and lower bound for auxiliary vairlabels e at
@@ -469,6 +476,31 @@ classdef optProgram < handle
             
             
         end
+        
+        
+        %===============================================================
+        % set work zone capacity
+        % input:
+        %       links: a column vector of links whose downstream bounds are
+        %              connected to a work zone.
+        %       capacity: a column vector, the percentage of the original capacity
+        function setWorkzoneCapacity(self, links, capacity)
+            
+            for i = 1:length(links)
+                
+                link = links(i);
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % update the downstream upper bound
+                self.ub(self.dv_index.(linkStr).downstream(1,1) +...
+                        self.dv_index.(linkStr).num_step_past_ds: ...
+                        self.dv_index.(linkStr).downstream(2,1) )  = ...
+                        self.net.network_hwy.(linkStr).para_qmax*capacity(i);
+            end
+            
+        end
+        
         
         
         %===============================================================
@@ -770,43 +802,62 @@ classdef optProgram < handle
         % NOTE: set the entropy condition first, then set the maximize
         % onramp flow objective. the weight for the onramp flow must be
         % smaller than the entropy condition weight
-        function maxOnrampFlow(self, links)
+        % input: 
+        %       juncs: a column vector of onrampjunc IDs,or 'all'
+        function maxOnrampFlow(self, juncs)
             
             if isempty(self.f)
                error('The entropy condition for the onrampjunc must be set first')
             end
-            
-            % negative values
-            max_weight = max(self.f(self.f<0));
-            
+          
             f_downflow = zeros(self.dv_index_max,1);
             
-            if strcmp(links, 'all')
-                
-                links = self.net.link_labels;
-                
+            if strcmp(juncs, 'all')
+                juncs = self.net.junc_labels;
             end
             
-            
-            for link = links'
-                
-                linkStr = sprintf('link_%d', link);
+            for junc = juncs'
+                juncStr = sprintf('junc_%d', junc);
                 
                 % skip links that are not onramps
-                if ~strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
+                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
                     continue
                 end
                 
-                % T_grid = self.net.network_hwy.(linkStr).T_ds;
-                % num_steps = length(T_grid);
-                f_downflow(self.dv_index.(linkStr).downstream(1,1):...
-                         self.dv_index.(linkStr).downstream(2,1)) = ...
-                         max_weight/2;
+                % find out the upstream freeway link id and the onramp id
+                inlinks = self.net.network_junc.(juncStr).inlabel;
+                linkStr = sprintf('link_%d',inlinks(1));
+                if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                    usFwyStr = linkStr;
+                    onRampStr = sprintf('link_%d', inlinks(2));
+                else
+                    onRampStr = linkStr;
+                    usFwyStr = sprintf('link_%d', inlinks(2));
+                end
+                
+                % Find the maximal weight used for the upstream freeway
+                % Onramp flow should not compete with the upstream freeway
+                % or cause congestion in the downstream
+                % Absolute weight < all absolute weight upstream
+                min_abs_us_weight = min(abs(self.f(self.dv_index.(usFwyStr).downstream(1):...
+                                                   self.dv_index.(usFwyStr).downstream(2))));
+                
+                T_grid = self.net.network_hwy.(onRampStr).T_ds;
+                num_steps = length(T_grid);
+                tmp_f =  -(num_steps:-1:1)'.*T_grid;    
+                % normalize f_downflow to [-min_abs_us_weight, 0)
+                tmp_f = min_abs_us_weight*tmp_f./abs(tmp_f(1));  
+                
+                f_downflow(self.dv_index.(onRampStr).downstream(1,1):...
+                         self.dv_index.(onRampStr).downstream(2,1)) = tmp_f;
+                           
             end
             
             self.f = self.f + f_downflow;
  
         end
+        
+        
         
         %===============================================================
         % maximize the error caused by not following the rules
@@ -830,6 +881,110 @@ classdef optProgram < handle
             self.f = self.f + f_error;
  
         end
+        
+        
+        
+        %===============================================================
+        % penalize the congestion for soft queue limit
+        % Here for simplicity, try to use min \sum s, where s is the slack
+        % variable  
+        function penalizeCongestion(self)
+            
+            if isempty(self.q_weight)
+                return
+            end
+            
+            if isempty(self.f)
+                self.f = zeros(self.dv_index_max, 1);
+            end
+            
+            f_penalty = zeros(self.dv_index_max, 1);
+            
+            % \sum_over_links \sum_over_steps s
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d',link);
+                
+                if isfield(self.soft_queue_limit, linkStr)
+                    
+                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
+                              self.dv_index.(linkStr).queue_s(2)) = 1;
+                    
+                    self.f = self.f + f_penalty;      
+                end
+                
+            end
+            
+            
+            
+            
+        end
+        
+        
+        
+        %===============================================================
+        % check if the constructed objective function satisfies the entropy
+        % condition, if not, add additional terms to make it entropy
+        % REMARK: it only supports onramp for this version
+        function applyEntropy(self)
+            
+            for junc = self.net.junc_labels'
+                
+                juncStr = sprintf('junc_%d',junc);
+                
+                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
+                    error('applyEntropy function only supports onrampjunc type in current version.')
+                else
+                    % find out the upstream freeway id
+                    inlinks = self.net.network_junc.(juncStr).inlabel;
+                    linkStr = sprintf('link_%d',inlinks(1));
+                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                        usFwyStr = linkStr;
+                    else
+                        usFwyStr = sprintf('link_%d', inlinks(2));
+                    end
+                    
+                    if isempty(self.f)
+                        error('Need to construct the objective function before applying entropy conditions.')
+                    end
+                    
+                    % By entropy condition, the absolute weights for q(i) need to be
+                    % monotonically decreasing over i. (Monotonically increasing since negative)
+                    % Combine self.f and slack variable (inexplicit weights)
+                    q_weight_f = self.f(self.dv_index.(usFwyStr).downstream(1,1):...
+                                        self.dv_index.(usFwyStr).downstream(2,1));
+                    if ~isempty(self.q_weight)
+                        q_weight_inexplicit = q_weight_f + self.q_weight;
+                    else
+                        q_weight_inexplicit = q_weight_f;
+                    end
+                    
+                    % all weights are negativ
+                    % check if monotonically increasing
+                    if all(diff(q_weight_inexplicit)>0) 
+                        disp('Status: Entropy check passed.')
+                    else
+                        % construct a desired combined entropy objective
+                        T_grid = self.net.network_hwy.(usFwyStr).T_ds;
+                        num_steps = length(T_grid);
+                        q_weight_combined = -(num_steps:-1:1)'.*T_grid;
+                        
+                        % the explicit weight that need to be set to
+                        % counter affect the penalty of the queue
+                        q_weight_explicit = q_weight_combined - q_weight_inexplicit;
+                       
+                        self.f(self.dv_index.(usFwyStr).downstream(1,1):...
+                               self.dv_index.(usFwyStr).downstream(2,1)) =...
+                               q_weight_explicit;
+                        disp('Status: Entropy conditions applied.')
+                    end
+                    
+                end
+                
+            end
+            
+        end
+        
         
         
         %===============================================================

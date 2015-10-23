@@ -19,8 +19,11 @@
 % [q_us, q_ds, rho_ini, L_traj, r_traj, 
 %  L_dens, rho_dens, L_queue, s_queue...
 %  bool_traj_min, bool_traj_max, 
-%  bool_dens_min, book_dens_max, 
+%  bool_dens_min, bool_dens_max, 
 %  other auxilary variables]
+
+% The first columns are A, the last column of the inequlity matrix is b
+% the signs follows Ax >= b
 
 % Description of value conditions:
 % Boundary condition: q_us, q_ds. The boundary flows at upstream and
@@ -57,6 +60,7 @@ classdef setIneqConstraints
                      % .internal_L; .internal_r; 
                      % .density_L; .density_rho;
                      % .queue_L; .queue_s
+                     % .num_step_past_us, .num_step_past_ds
         dv_max;      % keep track of the maximal index including the bools
         dv_var_max; % the maximum index for link float variables (not the bools)
         
@@ -86,12 +90,12 @@ classdef setIneqConstraints
         w;  % congestion slope
         k_c;    % critical density
         k_m;    % maximal density
+        q_max;
         
         start_time;
         now_time;
         end_time;   % end of simulation time window
-
-
+      
         %=========================================================
         % the following are for boundary conditions
         us_pos_m;     % upstream position in meters
@@ -107,15 +111,19 @@ classdef setIneqConstraints
         qin_meas;
         qout_meas;
         
-        % Those are relative errors in [0,1]
-        % q_meas(1-e_his) < q < q_meas(1+e_his)
+        % Use absolute error expressed in percent of normal range except
+        % the passing rate r.
+        % q_meas-e_his*q^max < q < q_meas+e_his*q^max
         e_max;  % error 
         
-        e_his;  % error for historical data
-        e_est;  % error for the estimated density condition
-        e_meas_flow; % error of the measurement of boundary flows
+        e_his;  % error for historical data; normal q_max
+        e_est;  % error for the estimated density condition; normal k_c
+        e_meas_flow; % error of the measurement of boundary flows; normal q_max
+        e_meas_dens;    % error of the density condition value; normalk_c
+        
+        % For passing rate r, use relative error
+        % r_meas(1-err) <= r <= r_meas(1+err)
         e_meas_traj_r;  % error of the trajectory passing rate
-        e_meas_dens;    % error of the density condition value
         
         %=========================================================
         % The following are for initial conditions
@@ -139,6 +147,10 @@ classdef setIneqConstraints
         x_max_dens;
         t_dens;
         dens_meas;
+        
+        % for soft queue points positions
+        soft_queue_x;
+        soft_queue_t;
         
         % the boolean variables for each point of the internal or the
         % density condition. 
@@ -196,93 +208,17 @@ classdef setIneqConstraints
                 soft_queue_limit,...
                 errors)            
             
-            self.dv_max = 0;
-            self.num_us_con = size(Boundary_con.BC_us,1);   % boundary conditions
-            self.dv_link.upstream = [self.dv_max+1; ...
-                                     self.dv_max+self.num_us_con];
-            self.dv_max = self.dv_max + self.num_us_con;
-            
-            self.num_ds_con = size(Boundary_con.BC_ds,1);
-            self.dv_link.downstream = [self.dv_max+1;...
-                                       self.dv_max+self.num_ds_con];
-            self.dv_max = self.dv_max + self.num_ds_con;
-                                   
-            self.num_initial_con = size(Initial_con.IC,1);   % initial conditions
-            self.dv_link.initial = [self.dv_max+1;...
-                                    self.dv_max+self.num_initial_con];
-            self.dv_max = self.dv_max + self.num_initial_con;
-            
-            if isfield(Traj_con, 'x_min_traj')
-                self.num_internal_con = length(Traj_con.x_min_traj);
-                % internal L
-                self.dv_link.internal_L = [self.dv_max+1;
-                                       self.dv_max+self.num_internal_con];
-                self.dv_max = self.dv_max + self.num_internal_con;
-                % internal r
-                self.dv_link.internal_r = [self.dv_max+1;
-                                       self.dv_max+self.num_internal_con];
-                self.dv_max = self.dv_max + self.num_internal_con;
-            else
-                self.num_internal_con = 0;     
-                % set as none if no internal conditions
-                self.dv_link.internal_L = [NaN; NaN];   
-                self.dv_link.internal_r = [NaN; NaN];   
-            end
-                        
-            if isfield(Dens_con, 'x_min_dens')
-                self.num_density_con = length(Dens_con.x_min_dens);
-                % density L
-                self.dv_link.density_L = [self.dv_max+1;
-                                          self.dv_max+self.num_density_con];
-                self.dv_max = self.dv_max + self.num_density_con;
-                % density rho
-                self.dv_link.density_rho = [self.dv_max+1;
-                                            self.dv_max+self.num_density_con];
-                self.dv_max = self.dv_max + self.num_density_con;
-            else
-                self.num_density_con = 0;         
-                % set as none if no density conditions
-                self.dv_link.density_L = [NaN; NaN];   
-                self.dv_link.density_rho = [NaN; NaN];   
-            end
-            
-            if ~isnan(soft_queue_limit)
-                
-                if self.num_internal_con ~= 0 || self.num_density_con ~= 0
-                    error('Current version does not support soft queue limit with internal or density condition.')
-                end
-                
-                tmp_grid = self.start_time:30:self.end_time;
-                if tmp_grid(end)~= self.end_time
-                    tmp_grid = [tmp_grid'; self.end_time];
-                end
-                self.num_soft_queue_pt = length(tmp_grid);
-                % soft queue L
-                self.dv_link.queue_L = [self.dv_max+1;
-                                        self.dv_max+self.num_soft_queue_pt];
-                self.dv_max = slef.dv_max + self.num_soft_queue_pt;   
-                % soft queue s
-                self.dv_link.queue_s = [self.dv_max+1; 
-                                        self.dv_max+self.num_soft_queue_pt];
-                self.dv_max = self.dv_max + self.num_soft_queue_pt;
-            else
-                self.num_soft_queue_pt = 0;
-                % set as none if no soft queue limit
-                self.dv_link.queue_L = [NaN; NaN];
-                self.dv_link.queue_s = [NaN; NaN];
-            end            
-            self.dv_var_max = self.dv_max;
-            
             % set road parameters
             self.v = para.vf;
             self.w = para.w;
             self.k_c = para.kc;
             self.k_m = para.km;
+            self.q_max = self.v*self.k_c;
             
             self.start_time = start_time;
             self.now_time = now_time;
             self.end_time = end_time;
-                        
+            
             % set the errors
             if isfield(errors, 'e_his')
                 self.e_his = errors.e_his;
@@ -313,6 +249,81 @@ classdef setIneqConstraints
             self.us_pos_m = 0;  % relative postm for each link
             self.ds_pos_m = para.postm;
             
+            
+            
+            self.dv_max = 0;
+            self.num_us_con = size(Boundary_con.BC_us,1);   % boundary conditions
+            self.dv_link.upstream = [self.dv_max+1; ...
+                                     self.dv_max+self.num_us_con];
+            self.dv_max = self.dv_max + self.num_us_con;
+            
+            self.num_ds_con = size(Boundary_con.BC_ds,1);
+            self.dv_link.downstream = [self.dv_max+1;...
+                                       self.dv_max+self.num_ds_con];
+            self.dv_max = self.dv_max + self.num_ds_con;
+                                   
+            self.num_initial_con = size(Initial_con.IC,1);   % initial conditions
+            self.dv_link.initial = [self.dv_max+1;...
+                                    self.dv_max+self.num_initial_con];
+            self.dv_max = self.dv_max + self.num_initial_con;
+            
+            if isfield(Traj_con, 'x_min_traj')
+                self.num_internal_con = length(Traj_con.x_min_traj);
+                % internal L
+                self.dv_link.internal_L = [self.dv_max+1;
+                                       self.dv_max+self.num_internal_con];
+                self.dv_max = self.dv_max + self.num_internal_con;
+                % internal r
+                self.dv_link.internal_r = [self.dv_max+1;
+                                       self.dv_max+self.num_internal_con];
+                self.dv_max = self.dv_max + self.num_internal_con;
+            else
+                self.num_internal_con = 0;     
+                % set as none do not set index
+            end
+                        
+            if isfield(Dens_con, 'x_min_dens')
+                self.num_density_con = length(Dens_con.x_min_dens);
+                % density L
+                self.dv_link.density_L = [self.dv_max+1;
+                                          self.dv_max+self.num_density_con];
+                self.dv_max = self.dv_max + self.num_density_con;
+                % density rho
+                self.dv_link.density_rho = [self.dv_max+1;
+                                            self.dv_max+self.num_density_con];
+                self.dv_max = self.dv_max + self.num_density_con;
+            else
+                self.num_density_con = 0;         
+            end
+            
+            if ~isnan(soft_queue_limit)
+                
+                if self.num_internal_con ~= 0 || self.num_density_con ~= 0
+                    error('Current version does not support soft queue limit with internal or density condition.')
+                end
+                
+                tmp_grid = self.start_time:30:self.end_time;
+                if tmp_grid(end)~= self.end_time
+                    tmp_grid = [tmp_grid'; self.end_time];
+                end
+                self.soft_queue_t = tmp_grid';
+                self.num_soft_queue_pt = length(tmp_grid);
+                self.soft_queue_x = ones(self.num_soft_queue_pt,1)*...
+                    (self.ds_pos_m-soft_queue_limit);
+                % soft queue L
+                self.dv_link.queue_L = [self.dv_max+1;
+                                        self.dv_max+self.num_soft_queue_pt];
+                self.dv_max = self.dv_max + self.num_soft_queue_pt;   
+                % soft queue s
+                self.dv_link.queue_s = [self.dv_max+1; 
+                                        self.dv_max+self.num_soft_queue_pt];
+                self.dv_max = self.dv_max + self.num_soft_queue_pt;
+            else
+                self.num_soft_queue_pt = 0;
+            end            
+            self.dv_var_max = self.dv_max;
+            
+            
             % Boundary condition
             self.T_us = Boundary_con.T_us;
             self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
@@ -320,6 +331,11 @@ classdef setIneqConstraints
             self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
             self.qin_meas = Boundary_con.BC_us;
             self.qout_meas = Boundary_con.BC_ds;
+            
+            % find out the number of past steps and the number of predict
+            % steps
+            self.dv_link.num_step_past_us = sum(self.T_us_cum <= self.now_time)-1;
+            self.dv_link.num_step_past_ds = sum(self.T_ds_cum <= self.now_time)-1;
             
             % internal trajectory condition
             if isempty(Traj_con) || isempty(fieldnames(Traj_con))
@@ -402,32 +418,24 @@ classdef setIneqConstraints
                 self.dv_link.bool_internal_min = [self.dv_max+1;...
                                                   self.dv_max+sum(self.nb_min_traj)];
                 self.dv_max = self.dv_max + sum(self.nb_min_traj);
-            else
-                self.dv_link.book_internal_min = [NaN; NaN];
             end
             % trajectory max points bools
             if sum(self.nb_max_traj) ~= 0
                 self.dv_link.bool_internal_max = [self.dv_max+1;...
                                                   self.dv_max+sum(self.nb_max_traj)];
                 self.dv_max = self.dv_max + sum(self.nb_max_traj);
-            else
-                self.dv_link.book_internal_max = [NaN; NaN];
             end
             % density min points bools
             if sum(self.nb_min_dens) ~= 0
                 self.dv_link.bool_density_min = [self.dv_max+1;...
                                                   self.dv_max+sum(self.nb_min_dens)];
                 self.dv_max = self.dv_max + sum(self.nb_min_dens);
-            else
-                self.dv_link.book_density_min = [NaN; NaN];
             end
             % density max points bools
             if sum(self.nb_max_dens) ~= 0
                 self.dv_link.bool_density_max = [self.dv_max+1;...
                                                   self.dv_max+sum(self.nb_max_dens)];
                 self.dv_max = self.dv_max + sum(self.nb_max_dens);
-            else
-                self.dv_link.book_density_max = [NaN; NaN];
             end
             
             % keep indexing all the bools 
@@ -436,8 +444,6 @@ classdef setIneqConstraints
             if self.num_bool ~= 0
                 self.dv_link.bool_all = [self.dv_var_max+1;...
                                          self.dv_var_max+self.num_bool];
-            else
-                self.dv_link.bool_all = [NaN; NaN];
             end
             
             % the last 1 is the right hand side constant for the
@@ -472,8 +478,8 @@ classdef setIneqConstraints
             
             if( (abs(x - self.us_pos_m)<0.00001) && (self.T_us_cum(n)<=t) &&...
                 (t<=self.T_us_cum(n+1)) && (n <= self.num_us_con) )
-                array(1,1:n-1) = self.T_us(1:n-1);
-                array(1,n) = t-self.T_us_cum(n);
+                array(1, self.dv_link.upstream(1) : self.dv_link.upstream(1)-1 + n-1) = self.T_us(1:n-1);
+                array(1, self.dv_link.upstream(1)-1 + n) = t-self.T_us_cum(n);
                 return
             else
                 array = []; %return a "NULL"
@@ -504,10 +510,10 @@ classdef setIneqConstraints
             
             if( (abs(x-self.ds_pos_m)<0.01) && (self.T_ds_cum(n) <= t) &&...
                 (t<= self.T_ds_cum(n+1)) && (n <= self.num_ds_con) )
-                array(1,self.num_us_con + self.num_ds_con +1:...
-                      self.num_us_con + self.num_ds_con + self.num_initial_con) = -self.X_grid;   %Initial number of vehicles
-                array(1,self.num_us_con +1:self.num_us_con + n-1) = self.T_ds(1:n-1);
-                array(1,self.num_us_con + n ) = t-self.T_ds_cum(n);
+                array(1,self.dv_link.initial(1):...
+                        self.dv_link.initial(2) ) = -self.X_grid;   %Initial number of vehicles
+                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n-1) = self.T_ds(1:n-1);
+                array(1,self.dv_link.downstream(1)-1 + n ) = t-self.T_ds_cum(n);
                 return
             else
                 array = [];
@@ -528,8 +534,8 @@ classdef setIneqConstraints
             if( (abs(t-self.t0)<0.01) &&  ( sum(self.X_grid(1:b)) <= x) &&...
                     ( x <=sum(self.X_grid(1:b+1))) && (b <= self.num_initial_con) )
                 array = zeros(1,self.size_row);
-                array(1, 2*(self.n_max+1)+1:2*(self.n_max+1)+b) = -self.X_grid(1:b);
-                array(1,2*(self.n_max+1) +  b +1) = -(x-sum(self.X_grid(1:b)));
+                array(1, self.dv_link.initial(1) : self.dv_link.initial(1)-1 + b) = -self.X_grid(1:b);
+                array(1, self.dv_link.initial(1)-1 +  b +1) = -(x-sum(self.X_grid(1:b)));
                 return
             else
                 array = []; %Return a "NULL"
@@ -551,9 +557,8 @@ classdef setIneqConstraints
             array = zeros(1,self.size_row);
             if ( (abs(x - (self.v_meas_traj(m)*(t-self.t_min_traj(m)) + self.x_min_traj(m))) < 0.01) &&...
                     (t>= self.t_min_traj(m)) && (t<= self.t_max_traj(m)) )
-                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + m) = 1;
-                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                            self.num_internal_con + m ) = t - self.t_min_traj(m);
+                array(1, self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1, self.dv_link.internal_r(1)-1 + m ) = t - self.t_min_traj(m);
                 return
             else
                 array = [];
@@ -576,8 +581,8 @@ classdef setIneqConstraints
             if ( (abs(t-self.t_dens(u)) < 0.0001) &&...
                     (x>= self.x_min_dens(u)) && (x<= self.x_max_dens(u)) )
                 array = zeros(1,self.size_row);
-                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + u) = 1;
-                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + self.num_density_con + u ) =...
+                array(1, self.dv_link.density_L(1)-1 + u) = 1;
+                array(1, self.dv_link.density_rho(1)-1 + u ) =...
                     -(x - self.x_min_dens(u+1));
                 return
             else
@@ -605,13 +610,13 @@ classdef setIneqConstraints
             % characteristic domain
             if((self.T_us_cum(n) + (x - self.us_pos_m)/self.v <= t) && ...
                     (self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v >= t ) && (n<= self.num_us_con))
-                array(1,1:n-1) = self.T_us(1:n-1);
-                array(1,n) = t - (x-self.us_pos_m) / self.v - self.T_us_cum(n);
+                array(1, self.dv_link.upstream(1): self.dv_link.upstream(1)-1 + n-1) = self.T_us(1:n-1);
+                array(1, self.dv_link.upstream(1)-1 + n) = t - (x-self.us_pos_m) / self.v - self.T_us_cum(n);
                 return
                 
             % Fan domain
             elseif((self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v < t) && (n <= self.num_us_con))
-                array(1,1:n) = self.T_us(1:n);
+                array(1,self.dv_link.upstream(1): self.dv_link.upstream(1)-1 + n) = self.T_us(1:n);
                 array(1,self.size_row) = -self.k_c*self.v * (t - self.T_us_cum(n+1) - (x-self.us_pos_m)/self.v);
                 return
                 
@@ -637,18 +642,18 @@ classdef setIneqConstraints
             % in characteristic domain
             if( (self.T_ds_cum(n) + (x - self.ds_pos_m)/self.w <= t) &&...
                     (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w >= t )&& (n <= self.num_ds_con))
-                array(1,self.num_us_con + self.num_ds_con +1:...
-                    self.num_us_con + self.num_ds_con + self.num_initial_con) = -self.X_grid; %initial number of vehicles
-                array(1,self.num_us_con +1:self.num_us_con + n-1) = self.T_ds(1:n-1);
-                array(1,self.num_us_con + n) = t - (x-self.ds_pos_m)/self.w - self.T_ds_cum(n);
+                array(1,self.dv_link.initial(1):...
+                        self.dv_link.initial(2)) = -self.X_grid; %initial number of vehicles
+                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n-1) = self.T_ds(1:n-1);
+                array(1,self.dv_link.downstream(1)-1 + n) = t - (x-self.ds_pos_m)/self.w - self.T_ds_cum(n);
                 array(1,self.size_row) = self.k_m*(x-self.ds_pos_m);
                 return
                 
             % in Fan domain
             elseif( (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w < t) && (n <= self.num_ds_con))
-                array(1,self.num_us_con + self.num_ds_con +1:...
-                    self.num_us_con + self.num_ds_con + self.num_initial_con) = -self.X_grid; %initial number of vehicles
-                array(1,self.num_us_con +1:self.num_us_con + n) = self.T_ds(1:n);
+                array(1,self.dv_link.initial(1):...
+                        self.dv_link.initial(2)) = -self.X_grid; %initial number of vehicles
+                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n) = self.T_ds(1:n);
                 array(1,self.size_row) = -self.k_c*self.v * (t - self.T_ds_cum(n+1) - (x-self.ds_pos_m)/(self.v));
                 return
             else
@@ -673,8 +678,8 @@ classdef setIneqConstraints
             if( (x >= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
                 ( x >= self.x_max_traj(m) + self.v*(t-self.t_max_traj(m))) &&...
                 (x <= self.x_min_traj(m) + self.v*(t-self.t_min_traj(m))) )
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + m) = 1;
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + self.num_internal_con + m) =...
+                array(1,self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1,self.dv_link.internal_r(1)-1 + m) =...
                     t - (x - self.x_min_traj(m) - self.v_meas_traj(m)*(t - self.t_min_traj(m))) / (self.v - self.v_meas_traj(m)) - self.t_min_traj(m) ;
                 return
             end
@@ -682,8 +687,8 @@ classdef setIneqConstraints
             if ( (x<= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
                  ( x <= self.x_max_traj(m) + self.w*(t-self.t_max_traj(m))) &&...
                  (x >= self.x_min_traj(m) + self.w*(t-self.t_min_traj(m))) )
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + m) = 1;
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + self.num_internal_con + m) =...
+                array(1,self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1,self.dv_link.internal_r(1)-1 + m) =...
                     t - (x - self.x_min_traj(m) - self.v_meas_traj(m)*(t-self.t_min_traj(m)))/(self.w - self.v_meas_traj(m)) - self.t_min_traj(m);
                 array(1,self.size_row) = -self.k_c*(self.v-self.w)*(x - self.x_min_traj(m) - self.v_meas_traj(m)*(t-self.t_min_traj(m)))/(self.w - self.v_meas_traj(m)) ;
                 return
@@ -691,8 +696,8 @@ classdef setIneqConstraints
             
             if( (x < self.x_max_traj(m) + self.v*(t - self.t_max_traj(m))) &&...
                     ( x > self.x_max_traj(m) + self.w*(t - self.t_max_traj(m))) )
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + m) = 1;
-                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + self.num_internal_con + m) = self.t_max_traj(m) - self.t_min_traj(m);
+                array(1, self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1, self.dv_link.internal_r(1)-1 + m) = self.t_max_traj(m) - self.t_min_traj(m);
                 array(1, self.size_row) = -(t-self.t_max_traj(m))*self.k_c*(self.v - (x-self.x_max_traj(m))/(t-self.t_max_traj(m)+0.000001));
                 return
             else
@@ -718,10 +723,10 @@ classdef setIneqConstraints
             if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.v <= x) &&...
                     (x <=self.us_pos_m+ sum(self.X_grid(1:b)) + t*self.v) &&...
                     ( b <= self.num_initial_con))
-                array(1,self.num_us_con + self.num_ds_con + 1 : ...
-                        self.num_us_con + self.num_ds_con + b-1) = -self.X_grid(1:b-1);
+                array(1, self.dv_link.initial(1) : ...
+                         self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
                 
-                array(1,self.num_us_con + self.num_ds_con + b) = ...
+                array(1,self.dv_link.initial(1)-1 + b) = ...
                     (t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
                 return
             end
@@ -730,8 +735,8 @@ classdef setIneqConstraints
             if ( (self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
                     (x < self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.v) &&...
                     (b <= self.num_initial_con))
-                array(1,self.num_us_con + self.num_ds_con + 1: ...
-                        self.num_us_con + self.num_ds_con + b-1) = -self.X_grid(1:b-1);
+                array(1, self.dv_link.initial(1): ...
+                         self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
                 
                 array(1,self.size_row) = -self.k_c*(t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
                 return
@@ -758,9 +763,9 @@ classdef setIneqConstraints
                     (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w) &&...
                     ( b <= self.num_initial_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + 1 :...
-                        self.num_us_con + self.num_ds_con + b - 1 ) = -self.X_grid(1:b-1);
-                array(1,self.num_us_con + self.num_ds_con + b) = ...
+                array(1,self.dv_link.initial(1) :...
+                        self.dv_link.initial(1)-1 + b - 1 ) = -self.X_grid(1:b-1);
+                array(1,self.dv_link.initial(1)-1 + b) = ...
                     (t*self.w - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
                 array(1,self.size_row) = self.k_m*t*self.w;
                 return
@@ -771,9 +776,9 @@ classdef setIneqConstraints
                     (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.v) &&...
                     (b <= self.num_initial_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + 1:...
-                    self.num_us_con + self.num_ds_con+b-1) = -self.X_grid(1:b-1);
-                array(1,self.num_us_con + self.num_ds_con + b) = -self.X_grid(b);
+                array(1,self.dv_link.initial(1):...
+                    self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
+                array(1,self.dv_link.initial(1)-1 + b) = -self.X_grid(b);
                 array(1,self.size_row) = -(self.k_c*(t*self.w - x + sum(self.X_grid(1:b)) + self.us_pos_m) - self.k_m*t*self.w);
                 return
             else
@@ -800,8 +805,8 @@ classdef setIneqConstraints
                  (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
                  (t>=self.t_dens(u)) && ( u <= self.num_density_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + u ) = 1;
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + self.num_density_con + u) =...
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
+                array(1,self.dv_link.density_rho(1)-1 + u) =...
                     (t-self.t_dens(u))*self.v - x + self.x_min_dens(u);
                 return
             end
@@ -809,7 +814,7 @@ classdef setIneqConstraints
             if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
                  (x <= self.x_min_dens(u) + (t-self.t_dens(u))*self.v) &&...
                  (t>=self.t_dens(u)) && (u <= self.num_density_con))
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + u ) = 1;
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
                 array(1,self.size_row) = -self.k_c*((t-self.t_dens(u))*self.v - x + self.x_min_dens(u));
                 return
             else
@@ -839,8 +844,8 @@ classdef setIneqConstraints
                  (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.w) &&...
                  (t>=self.t_dens(u)) && ( u <= self.num_density_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + u ) = 1;
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + self.num_density_con + u) =...
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
+                array(1,self.dv_link.density_rho(1)-1 + u) =...
                         (t-self.t_dens(u))*self.w - x + self.x_min_dens(u);
                 array(1,self.size_row) = self.k_m*(t-self.t_dens(u))*self.w;
                 return
@@ -850,7 +855,7 @@ classdef setIneqConstraints
                  (x <= self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
                  (t>=self.t_dens(u)) && (u <= self.num_density_con))
                 
-                array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + u ) = 1;
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
                 array(1,self.size_row) = -(self.k_c*((t-self.t_dens(u))*self.w - x +...
                                 self.x_max_dens(u)) - self.k_m*(t-self.t_dens(u))*self.w);
                 return
@@ -1878,8 +1883,10 @@ classdef setIneqConstraints
         
         %==========================================================================
         % Function to create the data constraints
+        % Relative error does not make sense and fail when x_meas = 0.
+        % Use absolute error expressed by percent of the normal range.
         % The corresponding variable x is constrained by
-        % x_meas(1-e)<=x<=x_mea(1+e)
+        % x - x_normal*e <= x <= x + x_normal*e, where x_normal = q_max, kc
         % output: 
         %       the data constraints matrix
         function [list2] = setDataMatrix(self)
@@ -1894,10 +1901,10 @@ classdef setIneqConstraints
                 for n=1:self.num_us_con
                     if ~isnan(self.qin_meas(n))
                         array = zeros(1,self.size_row);
-                        array(1,n) = 1;
+                        array(1,self.dv_link.upstream(1)-1 + n) = 1;
                         err = (self.T_us_cum(n+1)<= self.now_time)*self.e_meas_flow +...
                               (self.T_us_cum(n+1)> self.now_time)*self.e_his;
-                        array(1,self.size_row) = self.qin_meas(n)*(1-err);
+                        array(1,self.size_row) = self.qin_meas(n)-err*self.q_max;
                         
                         rows = rows+1;
                         list2(rows,:)=array;
@@ -1906,13 +1913,13 @@ classdef setIneqConstraints
                 
                 for n=1:self.num_us_con
                     if ~isnan(self.qin_meas(n))
-                    array = zeros(1,self.size_row);
-                    array(1,n) = -1;
-                    err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
-                              (self.T_us_cum(n+1)> self.now_time)*self.e_his;
-                    array(1,self.size_row) = -self.qin_meas(n)*(1+err);
-                    rows = rows+1;
-                    list2(rows,:)=array;
+                        array = zeros(1,self.size_row);
+                        array(1,self.dv_link.upstream(1)-1 + n) = -1;
+                        err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
+                            (self.T_us_cum(n+1)> self.now_time)*self.e_his;
+                        array(1,self.size_row) = -self.qin_meas(n)-err*self.q_max;
+                        rows = rows+1;
+                        list2(rows,:)=array;
                     end
                 end
                 
@@ -1924,10 +1931,10 @@ classdef setIneqConstraints
                 for n=1:self.num_ds_con
                     if ~isnan(self.qout_meas(n))
                     array = zeros(1,self.size_row);
-                    array(1,self.num_us_con + n) = 1;
-                    err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
-                              (self.T_us_cum(n+1) > self.now_time)*self.e_his;
-                    array(1,self.size_row) = self.qout_meas(n)*(1-err);
+                    array(1,self.dv_link.downstream(1)-1 + n) = 1;
+                    err = (self.T_ds_cum(n+1)<=self.now_time)*self.e_meas_flow +...
+                              (self.T_ds_cum(n+1) > self.now_time)*self.e_his;
+                    array(1,self.size_row) = self.qout_meas(n)-err*self.q_max;
                     rows = rows+1;
                     list2(rows,:)=array;
                     end
@@ -1936,10 +1943,10 @@ classdef setIneqConstraints
                 for n=1:self.num_ds_con
                     if ~isnan(self.qout_meas(n))
                     array = zeros(1,self.size_row);
-                    array(1,self.num_ds_con + n) = -1;
-                    err = (self.T_us_cum(n+1)<=self.now_time)*self.e_meas_flow +...
-                              (self.T_us_cum(n+1)> self.now_time)*self.e_his;
-                    array(1,self.size_row) = -self.qout_meas(n)*(1+err);
+                    array(1,self.dv_link.downstream(1)-1 + n) = -1;
+                    err = (self.T_ds_cum(n+1)<=self.now_time)*self.e_meas_flow +...
+                              (self.T_ds_cum(n+1)> self.now_time)*self.e_his;
+                    array(1,self.size_row) = -self.qout_meas(n)-err*self.q_max;
                     rows = rows+1;
                     list2(rows,:)=array;
                     end
@@ -1953,8 +1960,8 @@ classdef setIneqConstraints
                 for n=1:self.num_initial_con
                     if ~isnan(self.rho_ini(n))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con + n) = 1;
-                        array(1,self.size_row) = self.rho_ini(n)*(1-self.e_est);
+                        array(1,self.dv_link.initial(1)-1 + n) = 1;
+                        array(1,self.size_row) = self.rho_ini(n) - self.e_est*self.k_c;
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1963,8 +1970,8 @@ classdef setIneqConstraints
                 for n=1:self.num_initial_con
                     if ~isnan(self.rho_ini(n))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con + n) = -1;
-                        array(1,self.size_row) = -self.rho_ini(n)*(1+self.e_est);
+                        array(1,self.dv_link.initial(1)-1 + n) = -1;
+                        array(1,self.size_row) = -self.rho_ini(n) - self.e_est*self.k_c;
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -1972,15 +1979,15 @@ classdef setIneqConstraints
             end
             
             % The relative lable of the vehicle may not be know, but we can
-            % roughly know the passing rate, set here.
+            % roughly know the passing rate, set here. Since no knowledge
+            % on the normal range of r, use relative error
             % internal data constraints for rate of change r
             if(~isempty(self.r_meas_traj))
                 
                 for m = 1:self.num_internal_con
                     if ~isnan(self.r_meas_traj(m))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con +...
-                            self.num_initial_con + self.num_internal_con + m) = 1;
+                        array(1,self.dv_link.internal_r(1)-1 + m) = 1;
                         array(1,self.size_row) = self.r_meas_traj(m)*(1-self.e_meas_traj_r);
                         rows = rows+1;
                         list2(rows,:)=array;
@@ -1990,8 +1997,7 @@ classdef setIneqConstraints
                 for m = 1:self.num_internal_con
                     if ~isnan(self.r_meas_traj(m))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con +...
-                            self.num_initial_con + self.num_internal_con + m) = -1;
+                        array(1,self.dv_link.internal_r(1)-1 + m) = -1;
                         array(1,self.size_row) = - self.r_meas_traj(m)*(1+self.e_meas_traj_r);
                         rows = rows+1;
                         list2(rows,:)=array;
@@ -2006,9 +2012,8 @@ classdef setIneqConstraints
                 for u = 1:self.num_density_con
                     if ~isnan(self.dens_meas(u))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + ...
-                                self.num_density_con + u) = 1;
-                        array(1,self.size_row) = self.dens_meas(u)*(1-self.e_meas_dens);
+                        array(1,self.dv_link.density_rho(1)-1 + u) = 1;
+                        array(1,self.size_row) = self.dens_meas(u)-self.e_meas_dens*self.k_c;
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -2017,9 +2022,8 @@ classdef setIneqConstraints
                 for u = 1:self.num_density_con
                     if ~isnan(self.dens_meas(u))
                         array = zeros(1,self.size_row);
-                        array(1,self.num_us_con + self.num_ds_con + self.num_initial_con + 2*self.num_internal_con + ...
-                                self.num_density_con + u) = -1;
-                        array(1,self.size_row) = -self.dens_meas(u)*(1+self.e_meas_dens);
+                        array(1,self.dv_link.density_rho(1)-1 + u) = -1;
+                        array(1,self.size_row) = -self.dens_meas(u)-self.e_meas_dens*self.k_c;
                         rows = rows+1;
                         list2(rows,:)=array;
                     end
@@ -2147,7 +2151,7 @@ classdef setIneqConstraints
                         
                         arraym = self.m_ds_con(n,self.t_min_traj(k), self.x_min_traj(k));
                         array2 = self.subtractArray(arraym,temp_array);
-                        if(~isempty(array2) && arraym(1,self.num_us_con + n) ~= self.T_ds(n))
+                        if(~isempty(array2) && arraym(1, self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                             % The second condition ensure we only consider
                             % the solution at the characteristic domain
                             %Add a constraint
@@ -2241,12 +2245,10 @@ classdef setIneqConstraints
                         %Decode the binary combinations
                         for counter=1:self.nb_min_traj(k)
                             if comb_mat(i,nb-self.nb_min_traj(k) + counter) == 1
-                                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con +...
-                                 2*(self.num_internal_con) + 2*(self.num_density_con) + countB + counter) = -Cmax;
+                                array(1, self.dv_link.bool_internal_min(1)-1 + countB + counter) = -Cmax;
                                 
                             elseif comb_mat(i,nb-self.nb_min_traj(k) + counter) == 0
-                                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                                 2*(self.num_internal_con) +2*(self.num_density_con) + countB + counter) = Cmax;
+                                array(1, self.dv_link.bool_internal_min(1)-1 + countB + counter) = Cmax;
                                 
                             end
                         end
@@ -2265,8 +2267,7 @@ classdef setIneqConstraints
                     
                     for counter = 1:self.nb_min_traj(k)
                         
-                        array(1, self.num_us_con + self.num_ds_con + self.num_initial_con ...
-                            + 2*(self.num_internal_con) + 2*(self.num_density_con) + countB + counter) = -2^(self.nb_min_traj(k)-counter);
+                        array(1, self.dv_link.bool_internal_min(1)-1 + countB + counter) = -2^(self.nb_min_traj(k)-counter);
                         
                     end
                     array(1,self.size_row) = -(rowsM-1); %RHS (maximum possible value of the binary comb)                    
@@ -2351,7 +2352,7 @@ classdef setIneqConstraints
                 for n=1:self.num_ds_con
                     arraym = self.m_ds_con(n,self.t_max_traj(k), self.x_max_traj(k));
                     array2 = self.subtractArray(arraym,temp_array);
-                    if(~isempty(array2) && arraym(1,self.num_us_con + n) ~= self.T_ds(n))
+                    if(~isempty(array2) && arraym(1, self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                         %Add a constraint
                         rows = size(list3,1);
                         list3(rows+1,:) = array2;
@@ -2440,12 +2441,10 @@ classdef setIneqConstraints
                     %Decode the binary combinations
                     for counter=1:self.nb_max_traj(1,k)
                         if comb_mat(i,nb-self.nb_max_traj(1,k)+counter) == 1
-                            array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                             2*(self.num_internal_con) +2*(self.num_density_con) + countB + counter) = -Cmax;
+                            array(1, self.dv_link.bool_internal_min(1)-1 + countB + counter) = -Cmax;
                             
                         elseif comb_mat(i,nb-self.nb_max_traj(1,k)+counter) == 0
-                            array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                                2*(self.num_internal_con) +2*(self.num_density_con)+ countB + counter) = Cmax;
+                            array(1, self.dv_link.bool_internal_min(1)-1 + countB + counter) = Cmax;
                             
                         end
                     end
@@ -2462,8 +2461,7 @@ classdef setIneqConstraints
                 % Define constraint matrix elements for binary terms
                 for counter=1:self.nb_max_traj(1,k)
                     
-                    array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                        2*(self.num_internal_con) + 2*(self.num_density_con)+ countB + counter) = -2^(self.nb_max_traj(1,k)-counter);
+                    array(1, self.dv_link.bool_internal_min(1)-1 + countB + counter) = -2^(self.nb_max_traj(1,k)-counter);
                     
                 end
                 array(1,self.size_row) = -(rowsM-1); %RHS
@@ -2587,7 +2585,7 @@ classdef setIneqConstraints
                         
                         arraym = self.m_ds_con(n,self.t_dens(k), self.x_min_dens(k));
                         array2 = self.subtractArray(arraym,temp_array);
-                        if(~isempty(array2) && arraym(1,self.num_us_con + n) ~= self.T_ds(n))
+                        if(~isempty(array2) && arraym(1,self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                             %Add a constraint
                             rows = size(list3,1);
                             list3(rows+1,:) = array2;
@@ -2681,14 +2679,10 @@ classdef setIneqConstraints
                         %Decode the binary combinations
                         for counter=1:self.nb_min_dens(k)
                             if comb_mat(i,nb-self.nb_min_dens(k+1)+counter) == 1
-                                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con +...
-                                 2*(self.num_internal_con) + 2*(self.num_density_con) +...
-                                  sum(self.nb_min_traj) + sum(self.nb_max_traj) + countB + counter) = -Cmax;
+                                array(1, self.dv_link.bool_density_min(1)-1 + countB + counter) = -Cmax;
                                 
                             elseif comb_mat(i,nb-self.nb_min_dens(k+1)+counter) == 0
-                                array(1, self.num_us_con + self.num_ds_con + self.num_initial_con +...
-                                 2*(self.num_internal_con) + 2*(self.num_density_con) +...
-                                  sum(self.nb_min_traj) +sum(self.nb_max_traj)+ countB+ counter) = Cmax;
+                                array(1, self.dv_link.bool_density_min(1)-1 + countB+ counter) = Cmax;
                                 
                             end
                         end
@@ -2705,9 +2699,7 @@ classdef setIneqConstraints
                     
                     for counter=1:self.nb_min_dens(k)
                         
-                        array(1, self.num_us_con + self.num_ds_con + self.num_initial_con +...
-                         2*(self.num_internal_con) + 2*(self.num_density_con) + ...
-                         sum(self.nb_min_traj) + sum(self.nb_max_traj) + countB + counter) = ...
+                        array(1, self.dv_link.bool_density_min(1)-1 + countB + counter) = ...
                             -2^(self.nb_min_dens(k)-counter);
                         
                     end
@@ -2795,7 +2787,7 @@ classdef setIneqConstraints
                 for n=1:self.num_ds_con
                     arraym = self.m_ds_con(n,self.t_dens(k), self.x_max_dens(k));
                     array2 = self.subtractArray(arraym,temp_array);
-                    if(~isempty(array2) && array(1,self.num_us_con + n) ~= self.T_ds(n))
+                    if(~isempty(array2) && array(1,self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                         %Add a constraint
                         rows = size(list3,1);
                         list3(rows+1,:) = array2;
@@ -2879,16 +2871,14 @@ classdef setIneqConstraints
                     array = temp_array;
                     
                     %Decode the binary combinations
+                    % still use self.dv_link.bool_density_min(1) is because
+                    % countB is not reset
                     for counter=1:self.nb_max_dens(1,k)
                         if comb_mat(i,nb-self.nb_max_dens(1,k)+counter) == 1
-                            array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                             2*(self.num_internal_con) +  2*(self.num_density_con) + ...
-                             sum(self.nb_min_traj) + sum(self.nb_max_traj) + countB + counter) = -Cmax;
+                            array(1, self.dv_link.bool_density_min(1)-1 + countB + counter) = -Cmax;
                             
                         elseif comb_mat(i,nb-self.nb_max_dens(1,k)+counter) == 0
-                            array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                            2*(self.num_internal_con) + 2*(self.num_density_con) + ...
-                            sum(self.nb_min_traj) + sum(self.nb_max_traj) + countB + counter) = Cmax;
+                            array(1, self.dv_link.bool_density_min(1)-1 + countB + counter) = Cmax;
                             
                         end
                     end
@@ -2908,9 +2898,7 @@ classdef setIneqConstraints
                 % Define constraint matrix elements for binary terms
                 for counter=1:self.nb_max_dens(1,k)
                     
-                    array(1, self.num_us_con + self.num_ds_con + self.num_initial_con + ...
-                        2*(self.num_internal_con) + 2*(self.num_density_con) + ...
-                        sum(self.nb_min_traj) + sum(self.nb_max_traj) + countB + counter) = ...
+                    array(1, self.dv_link.bool_density_min(1)-1 + countB + counter) = ...
                          -2^(self.nb_max_dens(1,k)-counter);
                     
                 end
@@ -2941,7 +2929,7 @@ classdef setIneqConstraints
         %       from the downstream
         % output:
         %       the constraint matrix
-        function [list] = setQueueLimit(self, max_length)
+        function [list] = setHardQueueLimit(self, max_length)
             
             len_link = self.ds_pos_m - self.us_pos_m;
             
@@ -2959,6 +2947,7 @@ classdef setIneqConstraints
             else
                 x_queue = self.ds_pos_m - ones(num_queue_pt,1)*max_length;
             end
+            
             list = zeros(num_queue_pt, self.size_row);
             rows = 0;
             
@@ -2972,7 +2961,7 @@ classdef setIneqConstraints
                 M_ds = [];
                 for ds = 1:self.num_ds_con
                     tmp_ds = self.m_ds_con(ds, t_queue(pt), x_queue(pt));
-                    if ~isempty(tmp_ds) && tmp_ds(1, self.num_us_con + ds) ~= self.T_ds(ds)
+                    if ~isempty(tmp_ds) && tmp_ds(1, self.dv_link.downstream(1)-1 + ds) ~= self.T_ds(ds)
                         M_ds = tmp_ds;
                         break;  % Got the solution in the characteristic domain
                     end
@@ -2986,7 +2975,7 @@ classdef setIneqConstraints
                     for b = 1:self.num_initial_con
                         tmp_init_cong = self.m_initial_con_cf(b, t_queue(pt), x_queue(pt));
                         if ~isempty(tmp_init_cong) && ...
-                                tmp_init_cong(1, self.num_us_con+self.num_ds_con+b) ~= -self.X_grid(b)
+                                tmp_init_cong(1, self.dv_link.initial(1)-1 + b) ~= -self.X_grid(b)
                             M_init_cong = tmp_init_cong;
                             break;
                         end
@@ -3047,34 +3036,153 @@ classdef setIneqConstraints
         end
 
 
-
+        
         %==========================================================================
-        % not sure what this auxilary condition is for 
-%         function [list4] = setMatrixAux(self)
-%              list4 = zeros(0,0);
-%              
-%              for u=0:self.num_density_con
-%                  array = zeros(1,self.size_row);
-%                  array(1,2*(self.n_max+1) + (self.num_initial_con+1) + 2*(self.num_internal_con + 1) + (self.num_density_con+1) + u + 1) = -1;
-%                  array(1,2*(self.n_max+1) + (self.num_initial_con+1) + 2*(self.num_internal_con + 1) + 2*(self.num_density_con+1) + sum(self.nb_min_traj) + sum(self.nb_max_traj)...
-%                      + sum(self.nb_min_dens) + sum(self.nb_max_dens) + u + 1) = self.k_m-self.k_c;
-%                  array(1,self.size_row) = -self.k_c;
-%                  rows = size(list4,1);
-%                  list4(rows+1,:) = array;
-%              end
-%              
-%              for u=0:self.num_density_con
-%                  array = zeros(1,self.size_row);
-%                  array(1,2*(self.n_max+1) + (self.num_initial_con+1) + 2*(self.num_internal_con + 1) + (self.num_density_con+1) + u + 1) = 1;
-%                  array(1,2*(self.n_max+1) + (self.num_initial_con+1) + 2*(self.num_internal_con + 1) + 2*(self.num_density_con+1) + sum(self.nb_min_traj) + sum(self.nb_max_traj)...
-%                      + sum(self.nb_min_dens) + sum(self.nb_max_dens) + u + 1) = -self.k_c;
-%                  array(1,self.size_row) = 0;
-%                  rows = size(list4,1);
-%                  list4(rows+1,:) = array;
-%              end
-%             
-%         end
+        % Function to create soft constraints for queue limits
+        % For any point (x,t), define vehicle label L, and slack variable s
+        % constraints: L <= M^{us(+initial_free), ds(+initial_cong) }; 
+        %              L = M^us - s; s>=0; 
+        % objective: min s
+        % input:
+        % output: 
+        %       list: the constraint matrix; 
+        %       weight: the weight for q1, this is used for constructing
+        %           the entropy condition
+        function [list, weight] = setSoftQueueLimit(self)
             
+            % Each point introduces 5 inequalities
+            list = zeros(self.num_soft_queue_pt*5, self.size_row);
+            rows = 0;
+            % keep track of the weight of q1 which is in M^us
+            list_us = zeros(self.num_soft_queue_pt, self.size_row);
+            rows_us = 0;
+                        
+            % for each point
+            for pt = 1:self.num_soft_queue_pt
+                
+                % only consider the points in the future.
+                if self.soft_queue_t(pt) >= self.now_time
+                    
+                    % Note only one of M_ds and M_init_cong will be non empty
+                    % and only one of M_us and M_init_free will be non empty
+                    
+                    % Downstream characteristic domain
+                    M_ds = [];
+                    for ds = 1:self.num_ds_con
+                        tmp_ds = self.m_ds_con(ds, self.soft_queue_t(pt), self.soft_queue_x(pt));
+                        if ~isempty(tmp_ds) && ...
+                                tmp_ds(1, self.dv_link.downstream(1)-1 + ds) ~= self.T_ds(ds)
+                            M_ds = tmp_ds;
+                            break;  % Got the solution in the characteristic domain
+                        end
+                    end
+                    
+                    % If not in downstream characteristic domain. Then must be
+                    % in the initial condtion domain when its congested.
+                    if isempty(M_ds)
+                        % congested initial conditions;
+                        M_init_cong = [];
+                        for b = 1:self.num_initial_con
+                            tmp_init_cong = self.m_initial_con_cf(b, self.soft_queue_t(pt), self.soft_queue_x(pt));
+                            if ~isempty(tmp_init_cong) && ...
+                                    tmp_init_cong(1, self.dv_link.initial(1)-1 + b) ~= -self.X_grid(b)
+                                M_init_cong = tmp_init_cong;
+                                break;
+                            end
+                        end
+                        
+                        % impossible. something must be wrong
+                        if isempty(M_init_cong)
+                            error('Check the queue limit constraints.')
+                        else
+                            M_ds = M_init_cong;
+                        end
+                        
+                    end
+                    
+                    % Upstream characteristic domain
+                    M_us = [];
+                    for us = 1:self.num_us_con
+                        M_us = self.m_us_con(us, self.soft_queue_t(pt), self.soft_queue_x(pt));
+                        if ~isempty(M_us) && M_us(1, self.size_row) == 0
+                            break;  % Got the solution in the characteristic domain
+                        end
+                    end
+                    
+                    if isempty(M_us)
+                        % freeflow initial conditions
+                        M_init_free = [];
+                        for b = 1:self.num_initial_con
+                            tmp_init_free = self.m_initial_con_ff(b, self.soft_queue_t(pt), self.soft_queue_x(pt));
+                            if ~isempty(tmp_init_free) && ...
+                                    tmp_init_free(1, self.size_row) == 0
+                                M_init_free = tmp_init_free;
+                                break;
+                            end
+                        end
+                        
+                        % impossible. something must be wrong
+                        if isempty(M_init_free)
+                            error('Check the queue limit constraints.')
+                        else
+                            M_us = M_init_free;
+                        end
+                        
+                    end
+                    
+                    %=========add constraints==========
+                    % M_us - L >= 0
+                    array = M_us;
+                    array(1, self.dv_link.queue_L(1)-1 + pt) = -1;
+                    rows = rows+1;
+                    list(rows,:) = array;
+                    % keep track of weights
+                    rows_us = rows_us+1;
+                    list_us(rows_us,:) = array;
+                    
+                    % M_ds - L >= 0
+                    array = M_ds;
+                    array(1, self.dv_link.queue_L(1)-1 + pt) = -1;
+                    rows = rows+1;
+                    list(rows,:) = array;
+                    
+                    % M_us - s - L >= & L - M_us + s >=0
+                    array = M_us;
+                    array(1, self.dv_link.queue_L(1)-1 + pt) = -1;
+                    array(1, self.dv_link.queue_s(1)-1 + pt) = -1;
+                    rows = rows+1;
+                    list(rows,:) = array;
+                    array = -array;
+                    rows = rows+1;
+                    list(rows,:) = array;
+                    
+                    % s >= 0
+                    array = zeros(1, self.size_row);
+                    array(1, self.dv_link.queue_s(1)-1 + pt) = 1;
+                    rows = rows+1;
+                    list(rows,:) = array;
+                    
+                end
+                
+            end
+            
+            % truncate matrix
+            list = list(1:rows,:);
+            list_us = list_us(1:rows_us,:);
+            
+            % compute the sum of the weight
+            if ~isempty(list_us)
+                weight = sum( list_us(:,...
+                    self.dv_link.upstream(1):...
+                    self.dv_link.upstream(2)) ,1);
+                weight = weight';
+            else
+                weight = [];
+            end
+            
+        end
+    
+        
         
         
         %=========================================================================
@@ -3142,7 +3250,7 @@ classdef setIneqConstraints
                     for n=1:self.num_ds_con
                         
                         array = self.m_ds_con(n,self.t_min_traj(k), self.x_min_traj(k));
-                        if(~isempty(array) && array(1,self.num_us_con + n) ~= self.T_ds(n))
+                        if(~isempty(array) && array(1, self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                             % If in characteristic domain
                             countM = countM+1;
                             break;
@@ -3248,7 +3356,7 @@ classdef setIneqConstraints
                 for n=1:self.num_ds_con
                     
                     array = self.m_ds_con(n,self.t_min_traj(k), self.x_min_traj(k));
-                    if(~isempty(array) && array(1,self.num_us_con + n) ~= self.T_ds(n))
+                    if(~isempty(array) && array(1,self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                         % If in characteristic domain
                         countM = countM+1;
                         break;
@@ -3353,7 +3461,7 @@ classdef setIneqConstraints
                     for n=1:self.num_ds_con
                         
                         array = self.m_ds_con(n,self.t_dens(k), self.x_min_dens(k));
-                        if(~isempty(array) && array(1,self.num_us_con + n) ~= self.T_ds(n))
+                        if(~isempty(array) && array(1,self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                             countM = countM+1;
                             break;
                         end
@@ -3453,7 +3561,7 @@ classdef setIneqConstraints
                 % downstream
                 for n=1:self.num_ds_con
                     array = self.m_ds_con(n,self.t_dens(k), self.x_max_dens(k));
-                    if(~isempty(array) && array(1,self.num_us_con + n) ~= self.T_ds(n))
+                    if(~isempty(array) && array(1,self.dv_link.downstream(1)-1 + n) ~= self.T_ds(n))
                         countM = countM+1;
                         break;
                     end

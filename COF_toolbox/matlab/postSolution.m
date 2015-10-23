@@ -51,9 +51,12 @@ classdef postSolution < handle
         % sending and receiving function.
         t_ref;
         
-        % the queue limit on each link; just used for visualization
+        % the hard queue limit on each link; just used for visualization
         % struct, .(linkStr): in meters from downstream
-        queue_limit;
+        hard_queue_limit;
+        
+        % the soft queue limit on each link
+        soft_queue_limit;
 
         % set the maximal seartch depth of the recursive function for searching
         % the intersections
@@ -71,17 +74,21 @@ classdef postSolution < handle
         %       dv_index: the decision varialbe struct
         %       end_time: end time of the simulation
         %       dx_res/dt_res: float, resolution for visualization
-        %       queue_limit: struct, .(linkStr) limit of queue in meters
-        function self=postSolution(x, net, dv_index, end_time, dx_res, dt_res, queue_limit)
+        %       hard_queue_limit: struct, .(linkStr) limit of queue in meters
+        %       soft_queue_limit: struct, .(linkStr) limit of queue in meters
+        function self=postSolution(x, net, dv_index, end_time, dx_res, dt_res, ...
+                        hard_queue_limit, soft_queue_limit)
             
             self.x = x;
             self.dv_index = dv_index;
             self.net = net;
+            self.t_start_sim = 0;
             self.t_end_sim = end_time;
             self.dx_res = dx_res;
             self.dt_res = dt_res;
-            self.queue_limit = queue_limit;
-
+            self.hard_queue_limit = hard_queue_limit;
+            self.soft_queue_limit = soft_queue_limit;
+            
             % by default, the maximal search depth is 10
             self.max_search_depth = 10;
 
@@ -159,7 +166,7 @@ classdef postSolution < handle
                 dx = (ds_position)/nx;
                 
                 self.x_mesh_m.(linkStr) = 0:dx:ds_position;
-                self.t_mesh_s = 0:self.dt_res:self.t_end_sim;
+                self.t_mesh_s = self.t_start_sim:self.dt_res:self.t_end_sim;
                 
                 xValues = ones(size(self.t_mesh_s'))*(self.x_mesh_m.(linkStr));
                 tValues = self.t_mesh_s' * ones(size(self.x_mesh_m.(linkStr)));
@@ -329,31 +336,56 @@ classdef postSolution < handle
                         title_str, tt_flow, length(self.net.network_junc.(juncStr).T), tt_pen));
                     set(h,'FontSize',20)
                     
-                    % plot additional queue limit dash lines
-                    t_line = [self.net.network_junc.(juncStr).T_cum(1),...
+                    % plot additional hard queue limit solid lines and the
+                    % soft queue limit in dash lines
+                    t_line_hard = [self.net.network_junc.(juncStr).T_cum(1),...
                                   self.net.network_junc.(juncStr).T_cum(end)]';
-                   
-                    hold(ax1, 'on');
-                    if isfield(self.queue_limit, link1)
-                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.queue_limit.(link1);
-                        plot(ax1, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
+                    t_line_soft = self.t_start_sim:30:self.t_end_sim;
+                    if t_line_soft(end) ~= self.t_end_sim
+                        t_line_soft = [t_line_soft'; self.t_end_sim];
+                    else
+                        t_line_soft = t_line_soft';
                     end
-                    if isfield(self.queue_limit, link3)
+                              
+                    hold(ax1, 'on');
+                    if isfield(self.hard_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.hard_queue_limit.(link1);
+                        plot(ax1, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.hard_queue_limit, link3)
                         x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
-                                  self.net.network_hwy.(link3).para_postkm*1000 - self.queue_limit.(link3);
-                        plot(ax1, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
+                                  self.net.network_hwy.(link3).para_postkm*1000 - self.hard_queue_limit.(link3);
+                        plot(ax1, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.soft_queue_limit.(link1);
+                        plot(ax1, t_line_soft, x_queue*ones(length(t_line_soft), 1), '+r--', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link3)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link3).para_postkm*1000 - self.soft_queue_limit.(link3);
+                        plot(ax1,  t_line_soft, x_queue*ones(length(t_line_soft), 1), '*r--', 'LineWidth', 3)
                     end
                     hold(ax1, 'off');
                     
                     hold(ax2,'on');
-                    if isfield(self.queue_limit, link2)
-                        x_queue = self.net.network_hwy.(link2).para_postkm*1000 - self.queue_limit.(link2);
-                        plot(ax2, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
+                    if isfield(self.hard_queue_limit, link2)
+                        x_queue = self.net.network_hwy.(link2).para_postkm*1000 - self.hard_queue_limit.(link2);
+                        plot(ax2, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
                     end
-                    if isfield(self.queue_limit, link3)
+                    if isfield(self.hard_queue_limit, link3)
                         x_queue = self.net.network_hwy.(link2).para_postkm*1000 + ...
-                                  self.net.network_hwy.(link3).para_postkm*1000 - self.queue_limit.(link3);
-                        plot(ax2, t_line, [x_queue, x_queue]', 'r--', 'LineWidth', 3)
+                                  self.net.network_hwy.(link3).para_postkm*1000 - self.hard_queue_limit.(link3);
+                        plot(ax2, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link2)
+                        x_queue = self.net.network_hwy.(link2).para_postkm*1000 - self.soft_queue_limit.(link2);
+                        plot(ax2, t_line_soft, x_queue*ones(length(t_line_soft), 1), '+r--', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link3)
+                        x_queue = self.net.network_hwy.(link2).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link3).para_postkm*1000 - self.soft_queue_limit.(link3);
+                        plot(ax2, t_line_soft, x_queue*ones(length(t_line_soft), 1), '*r--', 'LineWidth', 3)
                     end
                     hold(ax2, 'off');
                     

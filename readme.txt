@@ -41,15 +41,29 @@ Details:
 20. If no data, then MATLAB just auto discretizes the time and space, and then simulate.
 21. updateDiscretization T_junc should contain the fixed boundary discretization in the past period and the updated boundary grid in the predicted period
 20. Build a link index in setineqConstraints for better tracking the position of each decision variable.
-21. Added a soft queue limit constraints.
+21. Added a soft queue limit constraints assuming that we do not have internal or density conditions
+22. Fixed a bug in previous version which sets the data constraints incorrectly (wrong indexing).
+23. Fixed all the indexing in setIneqConstraints
+
+- Oct 23
+24. Constructed the objective function, so far the result looks reasonable.
+25. Modified setIneqConstraints to use absolute error instead of relative error.
+26. Modified maxOnrampFlow such that the weight of onramps flows is decreasing over steps and smaller than the smallest weight of upstream freeway.
+27. Modified setWorkzoneCapacity, such that the capacity upper bound only applies to the flow in the future. The flow in the past is constrained by the measurement data.
+28. Updated setSoftQueueLimit in setIneqConstraints.m, such that the soft queue limit is set only in the future time.
 
 Todo:
 - auto logging with time stamps
+- check if the controlled flow from MATLAB is correctly set in AIMSUN. The value is correct, but the red-green may introduce cumulative error.
+- change the inflow and see if the controller does behave as expected. (freeway first, then onramp.)
 
 Issues:
 - The upper and lower bound for internal and density decision variables are set as -inf and inf. To investigate a little bit more to learn a realistic range.
 - We have not defined an offramp actuator yet. We use a green red cycle ramp meter for onramp control.
 - In find slope functions, if the interval is too small, the functions just return NaN which will introduce an error. Fix by computing an approximated slope.
 - The queue threshold only works for problems without internal and density conditions. Otherwise we have to introduce boolean variables.
-
-
+- The soft queue limit method holds only if there is not internal and density conditions. Otherwise, even if the point is not in the upstream influence domain, it still could be free flow since it might be in the domain of internal or density conditions.
+- In coordination with AIMSUN, need to put a break point at the startcontrol function.
+- The soft queue limit only applies in the current scenario, where a soft queue limit is only applied in the downstream link.
+- The applyEntropy only supports on ramp junctions for now.
+- currently plotting the hard queue and soft queue for visualization only works for the merge and onrampjunc.

@@ -45,18 +45,21 @@ meter.readHistoricalData('E:\\AIMSUN_MATLAB_COM\\historical_data.txt');
 % into cells with length smaller than 200 m
 % NOTE: if we know the initial condition, then
 % Here init_condition.(linkStr).IC is normalized
-init_condition = [];
-% init_condition.link_390.IC = 0;
-% init_condition.link_390.X_grid_cum = [0, ...
-%     meter.net.network_hwy.link_390.para_postkm*1000];
-% 
-% init_condition.link_330.IC = 0;
-% init_condition.link_330.X_grid_cum = [0, ...
-%     meter.net.network_hwy.link_330.para_postkm*1000];
-% 
-% init_condition.link_329.IC = 0;
-% init_condition.link_329.X_grid_cum = [0, ...
-%     meter.net.network_hwy.link_329.para_postkm*1000];
+% init_condition = [];
+init_condition.link_390.IC = zeros(5,1);
+init_condition.link_390.X_grid_cum = [0:...
+    meter.net.network_hwy.link_390.para_postkm*1000/5: ...
+    meter.net.network_hwy.link_390.para_postkm*1000]';
+
+init_condition.link_330.IC = zeros(5,1);
+init_condition.link_330.X_grid_cum = [0:...
+    meter.net.network_hwy.link_330.para_postkm*1000/5: ...
+    meter.net.network_hwy.link_330.para_postkm*1000]';
+
+init_condition.link_329.IC = zeros(5,1);
+init_condition.link_329.X_grid_cum = [0:...
+    meter.net.network_hwy.link_329.para_postkm*1000/5:...
+    meter.net.network_hwy.link_329.para_postkm*1000]';
 
 
 % T_grid is the discretization at the junctions
@@ -64,19 +67,25 @@ init_condition = [];
 % cells with 30 s length
 T_junc_grid = [];
 
-% The percent errors of the data
+% Percent error of the full range
+% e.g. [q_meas-e_meas_flow*q_max q_meas+e_meas_flow*q_max]
+%      [rho_est-e_est*kc, rho_est+e_est*kc]
 errors = struct;
 errors.e_default = 0.2;
 errors.e_his = 0.3; % historical data error
-errors.e_est = 0.2; % estimated initial condition error
-errors.e_meas_flow = 0.01;
+errors.e_est = 0.1; % estimated initial condition error
+errors.e_meas_flow = 0.05;
 
 % onramp queue limit
-queue_limit = struct;
-queue_limit.link_390 = 1000; % onramp
-queue_limit.link_330 = 300;
-queue_limit.link_329 = 100;
+hard_queue_limit = struct;
+hard_queue_limit.link_390 = 1000; % onramp
+% hard_queue_limit.link_330 = 300;
+% hard_queue_limit.link_329 = 100;
 % or queue_limit.(linkStr) which sets the limit of queue on freeways
+
+% soft queue limit
+soft_queue_limit = struct;
+soft_queue_limit.link_330 = 300;
 
 %===============================================================
 % start the simulation
@@ -89,7 +98,8 @@ fig_index = 0;
 %===============================================================
 % now start a rolling time horizon simulation
 % while new data coming in and t_now
-while (~exist(meter.com.stop_control, 'file'))
+while (~exist(meter.com.stop_control, 'file') && ...
+       ~exist(meter.com.simulation_completed, 'file'))
     
     if meter.getNewData()
        
@@ -131,21 +141,21 @@ while (~exist(meter.com.stop_control, 'file'))
             % build the CP; set the matrix, and solve
             CP = optProgram;
             % start time, end time, queue_limit .(onramp) = 2/3 length
-            CP.setConfig(meter.net, 0, meter.t_sim_end-meter.t_sim_start,...
-                         queue_limit);
+            CP.setConfig(meter.net, 0, meter.t_now-meter.t_sim_start,...
+                         meter.t_sim_end-meter.t_sim_start,...
+                         hard_queue_limit, soft_queue_limit);
             
             % constraints
             CP.setConstraints(errors);
-            
-            % objective function
-            % CP.addEntropy('all');
+            CP.setWorkzoneCapacity([330], 0.7);
             
             % a meaningful objective here. 
-            % maximize the onramp flow while not causing congestion in the
-            % dowanstream bottleneck
-            CP.maxDownflow([329], 1);
+            % The order is important
+            CP.maxDownflow([330], 1);
+            CP.penalizeCongestion;
+            CP.applyEntropy;
             CP.maxOnrampFlow('all');
-            CP.maxDownflow([330], 0.1);
+            
             
             % solve the CP
             [x, fval, exitflag, output] = CP.solveProgram;
@@ -156,7 +166,8 @@ while (~exist(meter.com.stop_control, 'file'))
             % do not solver the states inside links
             Mos = postSolution(x, meter.net, CP.dv_index,...
                                meter.t_sim_end-meter.t_sim_start,...
-                               meter.dx_res, meter.dt_res, queue_limit);
+                               meter.dx_res, meter.dt_res,...
+                               hard_queue_limit, soft_queue_limit);
             Mos.estimateState();
             
             % visualize the result, (computationally heavy)
@@ -167,7 +178,6 @@ while (~exist(meter.com.stop_control, 'file'))
 %             if getEntropy == false
 %                 hold on
 %                 T_junc_grid = Mos.updateTimeDiscretization(steps);
-%                 
 %             end
              
         end
