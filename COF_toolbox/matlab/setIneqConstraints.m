@@ -302,7 +302,7 @@ classdef setIneqConstraints
                     error('Current version does not support soft queue limit with internal or density condition.')
                 end
                 
-                tmp_grid = self.start_time:30:self.end_time;
+                tmp_grid = self.now_time:30:self.end_time;
                 if tmp_grid(end)~= self.end_time
                     tmp_grid = [tmp_grid'; self.end_time];
                 end
@@ -3061,7 +3061,7 @@ classdef setIneqConstraints
             for pt = 1:self.num_soft_queue_pt
                 
                 % only consider the points in the future.
-                if self.soft_queue_t(pt) >= self.now_time
+                if self.soft_queue_t(pt) > self.now_time
                     
                     % Note only one of M_ds and M_init_cong will be non empty
                     % and only one of M_us and M_init_free will be non empty

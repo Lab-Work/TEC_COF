@@ -4,8 +4,9 @@
 % consider the work zone control scenario with only one merge or one
 % diverge.
 % The control scheme is as follows::
-% 1. Model predictive control scheme. E.g. use last 1 hour boundary data, 
-%    predict the next 30 min, assuming we have the 30 min historical data.
+% 1. Model predictive control scheme. E.g. use past period boundary measurement 
+%    data and the historical data for the next period, then output optimal
+%    control in the predict period.
 % 2. Roll forward once new measurement is available. The rolling step can
 %    be 5 min.
 % 3. Only the first period of the 30 min optimal control output will be
@@ -14,6 +15,11 @@
 % 4. This class simulates a real-time control. The computation time of the
 %    solver is taken into account. Only the optimal control output after
 %    t_now + dt_computation time will be applied.
+% REMARK: 
+% - All communication between MATLAB and AIMSUN are in veh/hr, veh/km,
+%   km/hr, and s
+% - MATLAB internally use m and s. 
+% - AIMSUN internally may use km/hr or mile/hr depending on configuration.
 
 
 
@@ -37,9 +43,12 @@ classdef rampController < handle
         all_measurement_data;
         
         % all discretized control signal.
+        % [setting_time, duration, flow (veh/s)]
         all_signal;
         
         % the short period signal to be write to file and applied in AIMSUN
+        % [setting_time, duration, flow (veh/s)]
+        % When writing to file, veh/s was converted to veh/hr
         signal_to_apply;
         
         % the starting time of the entire simulation. This is the abusolute
@@ -485,9 +494,9 @@ classdef rampController < handle
                         % internal use
                         self.all_measurement_data.(linkStr).q_us(len+1,1) = str2double(items{4})/3600;
                         
-                        % speed is optional
+                        % speed is in km/hr, convert to m/s for internal
                         if length(items) == 5
-                            self.all_measurement_data.(linkStr).v_us(len+1,1) = str2double(items{5})*1609/3600;
+                            self.all_measurement_data.(linkStr).v_us(len+1,1) = str2double(items{5})*1000/3600;
                         else
                             self.all_measurement_data.(linkStr).v_us(len+1,1) = NaN;
                         end
@@ -510,7 +519,7 @@ classdef rampController < handle
                         
                         % speed is optional
                         if length(items) == 5
-                            self.all_measurement_data.(linkStr).v_ds(len+1,1) = str2double(items{5})*1609/3600;
+                            self.all_measurement_data.(linkStr).v_ds(len+1,1) = str2double(items{5})*1000/3600;
                         else
                             self.all_measurement_data.(linkStr).v_ds(len+1,1) = NaN;
                         end
@@ -976,6 +985,7 @@ classdef rampController < handle
                     index_flow = T_cum(2:end) > t_signal_start;
                     tmp_flow = x(dv_index.(linkStr).downstream(1,1):...
                                  dv_index.(linkStr).downstream(2,1));
+                    % in veh/s
                     signal_flow = tmp_flow(index_flow);
                     
                     % find the setting time of each signal flow
@@ -1021,26 +1031,35 @@ classdef rampController < handle
                 pause(0.1)    % wait in second
             end
             
-            disp('Writing signals...\n')
-            
-            fileID = fopen(self.com.signal,'w');
-            
-            % write header
-            % fprintf(fileID,'#signal_setting_time,cycle_duration,signal_value(green-0,red-1)\n');
-            
-            % write signal
-            % NOTE: fprintf writes each column of the matrix as a row in
-            % file, hence transpose the matrix.
-            fprintf(fileID,'%.2f,%.2f,%d\n',(self.signal_to_apply)');
-            
-            fclose(fileID);
-            
-            % write the flag file
-            fileID = fopen(self.com.signal_write_done,'w');
-            fprintf(fileID,'write done');
-            fclose(fileID);
-            disp('Finished writing signals.\n')
-            
+            if ~isempty(self.signal_to_apply)
+                disp('Writing signals...')
+                
+                fileID = fopen(self.com.signal,'w');
+                
+                % write header
+                fprintf(fileID,'#signal_setting_time (s),cycle_duration (s), flow (veh/hr)\n');
+                
+                % write signal
+                % NOTE: fprintf writes each column of the matrix as a row in
+                % file, hence transpose the matrix.
+                % convert the flow from veh/s to veh/hr, then write
+                
+                signal_to_apply_vehhr = self.signal_to_apply;
+                signal_to_apply_vehhr(:,3) = signal_to_apply_vehhr(:,3)*3600;
+                fprintf(fileID,'%.2f,%.2f,%d\n',(signal_to_apply_vehhr)');
+                
+                fclose(fileID);
+                
+                % write the flag file
+                fileID = fopen(self.com.signal_write_done,'w');
+                fprintf(fileID,'write done');
+                fclose(fileID);
+                disp('Finished writing signals.')
+                
+            else
+                self.stopControl();
+                
+            end
             
         end
         
@@ -1157,6 +1176,7 @@ classdef rampController < handle
         %       signal_setting_time: nx1 vector, the set time of signal
         %       signal_flow: nx1 vector the flow (veh/s)
         %       dt_cycle: the cycle length
+        % DO NOT USE
         function discretizeSignal(self, signal_setting_time, signal_flow, ...
                                     dt_cycle)
             
@@ -1192,6 +1212,20 @@ classdef rampController < handle
             fclose(fID);
             
         end
+        
+        
+        %===============================================================
+        % This function is called when end time is reached and stop control 
+        function stopControl(self)
+            
+            % tell AIMSUN that the initialization of MATLAB is done, start
+            % simulation
+            dlmwrite(self.com.stop_control, [], ';');
+            fID = fopen(self.com.stop_control);
+            fclose(fID);
+            
+        end
+        
         
         
         %===============================================================
@@ -1253,6 +1287,125 @@ classdef rampController < handle
         
         
         
+        %===============================================================
+        % Utility function
+        % This function plots the signal control output and the real data
+        % measurement
+        % input: 
+        %       link: the link id of the on ramp, where the meter is
+        %           installed at its downstream 
+        function compareSignalandData(self, link)
+            
+            linkStr = sprintf('link_%d', link);
+            data = [self.all_measurement_data.(linkStr).t_ds,...
+                    self.all_measurement_data.(linkStr).q_ds];
+            % convert to veh/hr
+            data(:,2) = data(:,2)*3600;
+                
+            signal = self.all_signal(:,[1,3]);
+            signal(:,2) = signal(:,2)*3600;
+            
+            figure
+            stairs([0; data(1:end-1,1)], data(:,2),'b', 'LineWidth', 2);
+            hold on
+            stairs(signal(:,1), signal(:,2), 'r--', 'LineWidth',2);
+            plot([self.dt_warm_up, self.dt_warm_up], [0, 1200], 'k', 'LineWidth', 2);
+            legend('data','signal','control starts')
+            ylabel('flow (veh/hr)','FontSize', 16);
+            xlabel('time (s)', 'FontSize', 16);
+            title('Applied signal and its effect', 'FontSize', 20);
+            
+            
+        end
+        
+        
+        
+        
+        %===============================================================
+        % Utility function
+        % This function fills the past_period_data with all measurement
+        % data, then call other functions to construct CP and Mos to plot
+        % 1. It fills the upstream and downstream data for all links up to
+        %    t_now
+        % 2. It clears the predict_data to empty
+        function replayHorizon(self)
+            
+            % This can be done simply by setting 
+            % t_sim_start = t_horizon_start; t_sim_end = t_now
+            self.t_sim_start = self.t_horizon_start;
+            self.t_sim_end = self.t_now;
+            
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % save the upstream past period data
+                if isfield(self.all_measurement_data, linkStr) && ...
+                        isfield(self.all_measurement_data.(linkStr), 't_us')
+                    % if we have those measurement data, then save them
+                    % in the past period data property
+                    index_past = self.all_measurement_data.(linkStr).t_us > self.t_sim_start &...
+                        self.all_measurement_data.(linkStr).t_us <= self.t_now;
+                    self.past_period_data.(linkStr).t_us =...
+                        self.all_measurement_data.(linkStr).t_us(index_past);
+                    self.past_period_data.(linkStr).q_us =...
+                        self.all_measurement_data.(linkStr).q_us(index_past);
+                    self.past_period_data.(linkStr).v_us =...
+                        self.all_measurement_data.(linkStr).v_us(index_past);
+                end
+                
+                % save the downstream past period data
+                if isfield(self.all_measurement_data, linkStr) && ...
+                        isfield(self.all_measurement_data.(linkStr), 't_ds')
+                    
+                    index_past = self.all_measurement_data.(linkStr).t_ds > self.t_sim_start &...
+                        self.all_measurement_data.(linkStr).t_ds <= self.t_now;
+                    self.past_period_data.(linkStr).t_ds =...
+                        self.all_measurement_data.(linkStr).t_ds(index_past);
+                    self.past_period_data.(linkStr).q_ds =...
+                        self.all_measurement_data.(linkStr).q_ds(index_past);
+                    self.past_period_data.(linkStr).v_ds =...
+                        self.all_measurement_data.(linkStr).v_ds(index_past);
+                end
+                
+                
+                % Clear the predict period data
+                self.predict_period_data = struct;
+               
+            end
+            
+            
+        end
+        
+        
+        
+        %===============================================================
+        % Utility function
+        % write all signal file for reply in AIMSUN
+        function writeAllSignalReplay(self)
+            
+            fileID = fopen(self.com.all_signal,'w');
+            
+            % write header
+            fprintf(fileID,'#signal_setting_time (s),cycle_duration (s), flow (veh/hr)\n');
+            
+            % write signal
+            % NOTE: fprintf writes each column of the matrix as a row in
+            % file, hence transpose the matrix.
+            % convert the flow from veh/s to veh/hr, then write
+            signal_to_apply_vehhr = self.all_signal;
+            signal_to_apply_vehhr(:,3) = signal_to_apply_vehhr(:,3)*3600;
+            fprintf(fileID,'%.2f,%.2f,%d\n',(signal_to_apply_vehhr)');
+            
+            fclose(fileID);
+            
+            % write the flag file
+            fileID = fopen(self.com.all_signal_write_done,'w');
+            fprintf(fileID,'write done');
+            fclose(fileID);
+            disp('Finished writing signals.')
+            
+        end
         
     end
     

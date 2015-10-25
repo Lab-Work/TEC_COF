@@ -72,20 +72,20 @@ T_junc_grid = [];
 %      [rho_est-e_est*kc, rho_est+e_est*kc]
 errors = struct;
 errors.e_default = 0.2;
-errors.e_his = 0.3; % historical data error
+errors.e_his = 0.2; % historical data error
 errors.e_est = 0.1; % estimated initial condition error
 errors.e_meas_flow = 0.05;
 
 % onramp queue limit
 hard_queue_limit = struct;
-hard_queue_limit.link_390 = 1000; % onramp
+% hard_queue_limit.link_390 = 1000; % onramp
 % hard_queue_limit.link_330 = 300;
 % hard_queue_limit.link_329 = 100;
 % or queue_limit.(linkStr) which sets the limit of queue on freeways
 
 % soft queue limit
 soft_queue_limit = struct;
-soft_queue_limit.link_330 = 300;
+soft_queue_limit.link_330 = 100;
 
 %===============================================================
 % start the simulation
@@ -147,7 +147,8 @@ while (~exist(meter.com.stop_control, 'file') && ...
             
             % constraints
             CP.setConstraints(errors);
-            CP.setWorkzoneCapacity([330], 0.7);
+            CP.setWorkzoneCapacity([330], 0.3);
+            CP.setOnrampMeterMaxRate([390], 900);
             
             % a meaningful objective here. 
             % The order is important
@@ -168,7 +169,7 @@ while (~exist(meter.com.stop_control, 'file') && ...
                                meter.t_sim_end-meter.t_sim_start,...
                                meter.dx_res, meter.dt_res,...
                                hard_queue_limit, soft_queue_limit);
-            Mos.estimateState();
+            % Mos.estimateState();
             
             % visualize the result, (computationally heavy)
             % Mos.plotJuncs('all');
@@ -185,20 +186,17 @@ while (~exist(meter.com.stop_control, 'file') && ...
         %=========================================
         % plot the entropic result if needed
         title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
-        Mos.plotJuncs('all', title_str);
-%         f = gcf;
-%         fig_index = fig_index+1;
-%         saveas(f, sprintf('%d', fig_index), 'png');
-%         close(f);
+        % Mos.plotJuncs('all', title_str);
       
         % Get the real time computation time
         dt_computation_end = now;
+        realtime_dt_computation = (dt_computation_end - dt_computation_start)*86400;
         % dt_computation = (dt_computation_end - dt_computation_start)*86400;
         
         % for debugging, assume a static 15 second computation time.
         dt_computation = 15;    
         
-        fprintf('The computation time is %f\n', dt_computation);
+        fprintf('The computation time is %f\n', realtime_dt_computation);
         
         %=========================================
         % extract and format signal
@@ -215,6 +213,77 @@ while (~exist(meter.com.stop_control, 'file') && ...
     
 end
 
+% write all the signal into file, then reply in AIMSUN.
+meter.writeAllSignalReplay;
+
+%==========================================================================
+% Plot the entire simulation horizon
+
+% set the past period to be the entire time horizon instead of dt_past
+meter.replayHorizon();
+
+% update the boundary discretization grid
+meter.updateBoundaryCondition();
+
+% update the initial condition based on the estimation
+init_condition.link_390.IC = zeros(5,1);
+init_condition.link_390.X_grid_cum = [0:...
+    meter.net.network_hwy.link_390.para_postkm*1000/5: ...
+    meter.net.network_hwy.link_390.para_postkm*1000]';
+
+init_condition.link_330.IC = zeros(5,1);
+init_condition.link_330.X_grid_cum = [0:...
+    meter.net.network_hwy.link_330.para_postkm*1000/5: ...
+    meter.net.network_hwy.link_330.para_postkm*1000]';
+
+init_condition.link_329.IC = zeros(5,1);
+init_condition.link_329.X_grid_cum = [0:...
+    meter.net.network_hwy.link_329.para_postkm*1000/5:...
+    meter.net.network_hwy.link_329.para_postkm*1000]';
+
+meter.updateInitialCondition(init_condition);
+
+%=========================================
+% build the CP; set the matrix, and solve
+CP = optProgram;
+% start time, end time, queue_limit .(onramp) = 2/3 length
+CP.setConfig(meter.net, 0, meter.t_now-meter.t_horizon_start,...
+    meter.t_now,...
+    hard_queue_limit, soft_queue_limit);
+
+% constraints
+% Here e_est is only used to constrain initial condition which we know is 0
+errors.e_est = 0.08;
+errors.e_meas_flow = 0.04;
+CP.setConstraints(errors);
+CP.setWorkzoneCapacity([330], 0.8);
+CP.setOnrampMeterMaxRate([390], 900);
+
+% a meaningful objective here.
+% The order is important
+CP.maxDownflow([330], 1);
+CP.penalizeCongestion;
+CP.applyEntropy;
+CP.maxOnrampFlow('all');
+
+% solve the CP
+[x, fval, exitflag, output] = CP.solveProgram;
+
+%=========================================
+% post processing, check entropy and update discretization
+% function obj=postSolutionMPC(x)
+% do not solver the states inside links
+Mos = postSolution(x, meter.net, CP.dv_index,...
+    meter.t_sim_end-meter.t_horizon_start,...
+    meter.dx_res, meter.dt_res,...
+    hard_queue_limit, soft_queue_limit);
+Mos.estimateState();
+
+title_str = sprintf('%d ~ %d', meter.t_horizon_start, meter.t_sim_end);
+        Mos.plotJuncs('all', title_str);
+
+meter.compareSignalandData([390])
+        
 toc
 
 

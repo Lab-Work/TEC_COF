@@ -52,10 +52,19 @@ Details:
 27. Modified setWorkzoneCapacity, such that the capacity upper bound only applies to the flow in the future. The flow in the past is constrained by the measurement data.
 28. Updated setSoftQueueLimit in setIneqConstraints.m, such that the soft queue limit is set only in the future time.
 
+- Oct 24
+29. All communication between MATLAB and AIMSUN are done in km and hr.
+30. Added a function compareSignalandData to compare the desired flow value with the approximated flow value.
+
+
 Todo:
 - auto logging with time stamps
-- check if the controlled flow from MATLAB is correctly set in AIMSUN. The value is correct, but the red-green may introduce cumulative error.
-- change the inflow and see if the controller does behave as expected. (freeway first, then onramp.)
+- Investigate a bit more on signal and if it is working as expected. It seems like the meter operates as: whenever a new flow signal is written to the meter, the meter let one car go and then wait a proper amount of time to approximate that flow. Need to find a way to resolve this. May change to use the red-green meter.
+- write a replay function in AIMSUN so we can see the animation
+- Write a function in MATLAB which plots the entire horizon using measurement data. (replay in MATLAB).
+- Compare q1_ds + q2_ds with q3_us
+- Check how much error AIMSUN detector has. Or how much error is in the fundamental diagram. Can we improve the result using a more accurate FD
+
 
 Issues:
 - The upper and lower bound for internal and density decision variables are set as -inf and inf. To investigate a little bit more to learn a realistic range.

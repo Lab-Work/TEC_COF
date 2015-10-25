@@ -504,6 +504,30 @@ classdef optProgram < handle
         
         
         %===============================================================
+        % set onramp maximum rate
+        % input:
+        %       links: a column vector of links whose downstream bounds are
+        %              connected to a work zone.
+        %       rate: a column vector, the maximum onramp rate in veh/hr
+        function setOnrampMeterMaxRate(self, links, rate)
+            
+            for i = 1:length(links)
+                
+                link = links(i);
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % update the downstream upper bound
+                self.ub(self.dv_index.(linkStr).downstream(1,1) +...
+                        self.dv_index.(linkStr).num_step_past_ds: ...
+                        self.dv_index.(linkStr).downstream(2,1) ) = rate(i)/3600;
+            end
+            
+        end
+        
+        
+        
+        %===============================================================
         % solve using cplex
         % H and f are objective functions
         % min x'*H*x + f*x
@@ -1023,7 +1047,27 @@ classdef optProgram < handle
         end
         
         
+        %===============================================================
+        % utility function
+        % This function separates the column vector (x, lb, ub, f) for
+        % better interpretation
+        % input:
+        %       col: the column vector to be dissected and investigated
+        % TODO: to be finished.
+        function dissectDvInfo(self, col)
+            
+            if length(col) ~= self.dv_index_max
+                error('col must have the same length as the decision variable.')
+            end
+            
+            for linkStr = fieldnames(CP.dv_index)'
+                
+                disp(linkStr);
+  
+            end
+            
         
+        end
     end
     
 end

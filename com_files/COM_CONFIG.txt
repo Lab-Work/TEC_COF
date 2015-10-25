@@ -11,7 +11,9 @@ data_write_done,E:\\AIMSUN_MATLAB_COM\\data_write_done.txt
 %
 % the control signal file
 signal,E:\\AIMSUN_MATLAB_COM\\signal.txt
+all_signal,E:\\AIMSUN_MATLAB_COM\\all_signal.txt
 signal_write_done,E:\\AIMSUN_MATLAB_COM\\signal_write_done.txt
+all_signal_write_done,E:\\AIMSUN_MATLAB_COM\\allsignal_write_done.txt
 %
 % matlab initialization done file
 matlab_init_done,E:\\AIMSUN_MATLAB_COM\\matlab_init_done.txt
