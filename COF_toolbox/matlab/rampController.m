@@ -174,6 +174,7 @@ classdef rampController < handle
             
         end
         
+        
         %===============================================================
         % set up the communication between MATLAB controller and AIMSUN
         % simulator using file shareing
@@ -1014,25 +1015,12 @@ classdef rampController < handle
                     
                 end
                                 
-                
-                
+
             end
             
-            % write signal to file
-            % First check if previous signal file was read by AIMSUN. If read, 
-            % AIMSUN will delete signal file. Otherwise wait for AIMSUN. 
-            tmp_counter = 0;
-            while exist(self.com.signal,'file')
-                if tmp_counter == 10
-                    disp('Wait for AIMSUN to read the previous signal...\n')
-                    tmp_counter = 0;
-                end
-                
-                pause(0.1)    % wait in second
-            end
-            
+
             if ~isempty(self.signal_to_apply)
-                disp('Writing signals...')
+                fprintf('Time %d: Writing signals ...\n', self.t_now)
                 
                 fileID = fopen(self.com.signal,'w');
                 
@@ -1054,7 +1042,20 @@ classdef rampController < handle
                 fileID = fopen(self.com.signal_write_done,'w');
                 fprintf(fileID,'write done');
                 fclose(fileID);
-                disp('Finished writing signals.')
+                fprintf('Wrote signal: %d ~ %d\n', signal_to_apply_vehhr(1,1),...
+                    signal_to_apply_vehhr(end,1)+signal_to_apply_vehhr(end,2))
+                
+                % Make sure AIMSUN read the signal, signal file will be
+                % deleted once AIMSUN finishes reading it.
+                tmp_counter = 0;
+                while exist(self.com.signal,'file')
+                    if tmp_counter == 10
+                        disp('Wait for AIMSUN to read the signal...\n')
+                        tmp_counter = 0;
+                    end
+                    tmp_counter = tmp_counter+1;
+                    pause(0.1)    % wait in second
+                end
                 
             else
                 self.stopControl();
@@ -1301,12 +1302,22 @@ classdef rampController < handle
                     self.all_measurement_data.(linkStr).q_ds];
             % convert to veh/hr
             data(:,2) = data(:,2)*3600;
-                
+            % shift data since the timestamp is when the data is collected    
+            data(:,1) = [0; data(1:end-1,1)];
+            if data(end,1) ~= self.t_horizon_end
+                last_data = [self.t_horizon_end, data(end,2)];
+                data = [data; last_data];
+            end
+            
             signal = self.all_signal(:,[1,3]);
             signal(:,2) = signal(:,2)*3600;
+            if signal(end,1) ~= self.t_horizon_end
+                last_signal = [self.t_horizon_end, signal(end,2)];
+                signal = [signal; last_signal];
+            end
             
             figure
-            stairs([0; data(1:end-1,1)], data(:,2),'b', 'LineWidth', 2);
+            stairs( data(:,1), data(:,2),'b', 'LineWidth', 2);
             hold on
             stairs(signal(:,1), signal(:,2), 'r--', 'LineWidth',2);
             plot([self.dt_warm_up, self.dt_warm_up], [0, 1200], 'k', 'LineWidth', 2);
@@ -1314,6 +1325,7 @@ classdef rampController < handle
             ylabel('flow (veh/hr)','FontSize', 16);
             xlabel('time (s)', 'FontSize', 16);
             title('Applied signal and its effect', 'FontSize', 20);
+            xlim([self.t_horizon_start, self.t_horizon_end])
             
             
         end
@@ -1406,6 +1418,179 @@ classdef rampController < handle
             disp('Finished writing signals.')
             
         end
+        
+        
+        %===============================================================
+        % Utility function
+        % read all data and replay the forward simulation
+        function readAllDataReplay(self)
+            
+            if ~exist(self.com.all_data, 'file')
+                error('all_data.txt does not exist.')
+            end
+            
+            content = self.readTextFile(self.com.all_data);
+            
+            % parse each line into numerical values
+                for line = content
+                    
+                    % items = [link_id, link_bound, time, flow, speed]
+                    items = strsplit(line{1}, ',');
+                    
+                    linkStr = sprintf('link_%d', str2double(items{1}));
+                    
+                    if ~any(self.net.link_labels == str2double(items{1}))
+                        error('ERROR: link %d not found in the network.\n',...
+                            str2double(items{1}))
+                    end
+                    
+                    % save to all_measurement_data
+                    % initialize the link field
+                    if ~isfield(self.all_measurement_data, linkStr)
+                        self.all_measurement_data.(linkStr) = struct;
+                    end
+                    
+                    if strcmp(items{2}, 'upstream')
+                        
+                        if isfield(self.all_measurement_data.(linkStr), 't_us')
+                            len = length(self.all_measurement_data.(linkStr).t_us);
+                        else
+                            % field has not been created yet
+                            self.all_measurement_data.(linkStr).t_us=[];
+                            self.all_measurement_data.(linkStr).q_us=[];
+                            self.all_measurement_data.(linkStr).v_us=[];
+                            len = 0;
+                        end
+                        
+                        self.all_measurement_data.(linkStr).t_us(len+1,1) = str2double(items{3});                        
+                        % The flow in data is veh/hr, convert to veh/s for
+                        % internal use
+                        self.all_measurement_data.(linkStr).q_us(len+1,1) = str2double(items{4})/3600;
+                        
+                        % speed is in km/hr, convert to m/s for internal
+                        if length(items) == 5
+                            self.all_measurement_data.(linkStr).v_us(len+1,1) = str2double(items{5})*1000/3600;
+                        else
+                            self.all_measurement_data.(linkStr).v_us(len+1,1) = NaN;
+                        end
+                            
+                            
+                    elseif strcmp(items{2}, 'downstream')
+                        
+                        if isfield(self.all_measurement_data.(linkStr), 't_ds')
+                            len = length(self.all_measurement_data.(linkStr).t_ds);
+                        else
+                            % field has not been created yet
+                            self.all_measurement_data.(linkStr).t_ds=[];
+                            self.all_measurement_data.(linkStr).q_ds=[];
+                            self.all_measurement_data.(linkStr).v_ds=[];
+                            len = 0;
+                        end
+                        
+                        self.all_measurement_data.(linkStr).t_ds(len+1,1) = str2double(items{3});                        
+                        self.all_measurement_data.(linkStr).q_ds(len+1,1) = str2double(items{4})/3600;
+                        
+                        % speed is optional
+                        if length(items) == 5
+                            self.all_measurement_data.(linkStr).v_ds(len+1,1) = str2double(items{5})*1000/3600;
+                        else
+                            self.all_measurement_data.(linkStr).v_ds(len+1,1) = NaN;
+                        end
+                        
+                    end
+                    
+                end
+            
+            % update the current time, the sim start and sim end.
+            self.t_now = max([self.all_measurement_data.(linkStr).t_us;...
+                               self.all_measurement_data.(linkStr).t_ds]);
+            self.t_sim_start = self.t_horizon_start;
+            self.t_sim_end = self.t_now;
+            
+            % update the past_period_data and predict_period_data
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % save the upstream past period data
+                if isfield(self.all_measurement_data, linkStr) && ...
+                        isfield(self.all_measurement_data.(linkStr), 't_us')
+                    % if we have those measurement data, then save them
+                    % in the past period data property
+                    index_past = self.all_measurement_data.(linkStr).t_us > self.t_sim_start &...
+                        self.all_measurement_data.(linkStr).t_us <= self.t_now;
+                    self.past_period_data.(linkStr).t_us =...
+                        self.all_measurement_data.(linkStr).t_us(index_past);
+                    self.past_period_data.(linkStr).q_us =...
+                        self.all_measurement_data.(linkStr).q_us(index_past);
+                    self.past_period_data.(linkStr).v_us =...
+                        self.all_measurement_data.(linkStr).v_us(index_past);
+                end
+                
+                % save the downstream past period data
+                if isfield(self.all_measurement_data, linkStr) && ...
+                        isfield(self.all_measurement_data.(linkStr), 't_ds')
+                    
+                    index_past = self.all_measurement_data.(linkStr).t_ds > self.t_sim_start &...
+                        self.all_measurement_data.(linkStr).t_ds <= self.t_now;
+                    self.past_period_data.(linkStr).t_ds =...
+                        self.all_measurement_data.(linkStr).t_ds(index_past);
+                    self.past_period_data.(linkStr).q_ds =...
+                        self.all_measurement_data.(linkStr).q_ds(index_past);
+                    self.past_period_data.(linkStr).v_ds =...
+                        self.all_measurement_data.(linkStr).v_ds(index_past);
+                end
+                
+                % save the upstream predict period data from the
+                % historical data set
+                if isfield(self.historical_data, linkStr) && ...
+                        isfield(self.historical_data.(linkStr), 't_us')
+                    % if we have those measurement data, then save them
+                    % in the past period data property
+                    index_predict = self.historical_data.(linkStr).t_us > self.t_now &...
+                        self.historical_data.(linkStr).t_us < self.t_sim_end;
+                    last_index = find( self.historical_data.(linkStr).t_us >= self.t_sim_end, 1 );
+                    % t_us(end) must be self.t_sim_end
+                    self.predict_period_data.(linkStr).t_us =...
+                        [self.historical_data.(linkStr).t_us(index_predict);...
+                        self.t_sim_end];
+                    self.predict_period_data.(linkStr).q_us =...
+                        [self.historical_data.(linkStr).q_us(index_predict);...
+                        self.historical_data.(linkStr).q_us(last_index)];
+                    self.predict_period_data.(linkStr).v_us =...
+                        [self.historical_data.(linkStr).v_us(index_predict);...
+                        self.historical_data.(linkStr).v_us(last_index)];
+                end
+                
+                % save the downstream predict period data from the
+                % historical data set
+                if isfield(self.historical_data, linkStr) && ...
+                        isfield(self.historical_data.(linkStr), 't_ds')
+                    % if we have those measurement data, then save them
+                    % in the past period data property
+                    index_predict = self.historical_data.(linkStr).t_ds > self.t_now &...
+                        self.historical_data.(linkStr).t_ds <= self.t_sim_end;
+                    last_index = find( self.historical_data.(linkStr).t_ds >= self.t_sim_end, 1 );
+                    self.predict_period_data.(linkStr).t_ds =...
+                        [self.historical_data.(linkStr).t_ds(index_predict);...
+                        self.t_sim_end];
+                    self.predict_period_data.(linkStr).q_ds =...
+                        [self.historical_data.(linkStr).q_ds(index_predict);...
+                        self.historical_data.(linkStr).q_ds(last_index)];
+                    self.predict_period_data.(linkStr).v_ds =...
+                        [self.historical_data.(linkStr).v_ds(index_predict);...
+                        self.historical_data.(linkStr).v_ds(last_index)];
+                end
+                
+                
+                
+                
+            end
+            
+            
+        end
+        
+        
         
     end
     

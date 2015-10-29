@@ -75,6 +75,8 @@ errors.e_default = 0.2;
 errors.e_his = 0.2; % historical data error
 errors.e_est = 0.1; % estimated initial condition error
 errors.e_meas_flow = 0.05;
+workzone_capacity = 0.6;
+max_meter_rate = 900;   % veh/hr
 
 % onramp queue limit
 hard_queue_limit = struct;
@@ -85,24 +87,24 @@ hard_queue_limit = struct;
 
 % soft queue limit
 soft_queue_limit = struct;
-soft_queue_limit.link_330 = 100;
+soft_queue_limit.link_330 = 300;
 
 %===============================================================
 % start the simulation
 meter.initMATLAB();
-dt_warm_up = 5*60;
+dt_warm_up = 0*60;
 meter.warmUp(dt_warm_up);
 
 meter.startControl();
-fig_index = 0;
 %===============================================================
 % now start a rolling time horizon simulation
 % while new data coming in and t_now
 while (~exist(meter.com.stop_control, 'file') && ...
        ~exist(meter.com.simulation_completed, 'file'))
     
-    if meter.getNewData()
-       
+   % if just finished the warm up or got new data
+    % if meter.getNewData() || meter.t_now - t_horizon_start == dt_warm_up
+    if meter.getNewData()  
         % set a timer for the computation time
         dt_computation_start = now;
         
@@ -147,8 +149,8 @@ while (~exist(meter.com.stop_control, 'file') && ...
             
             % constraints
             CP.setConstraints(errors);
-            CP.setWorkzoneCapacity([330], 0.3);
-            CP.setOnrampMeterMaxRate([390], 900);
+            CP.setWorkzoneCapacity([330], workzone_capacity);
+            CP.setOnrampMeterMaxRate([390], max_meter_rate);
             
             % a meaningful objective here. 
             % The order is important
@@ -169,7 +171,7 @@ while (~exist(meter.com.stop_control, 'file') && ...
                                meter.t_sim_end-meter.t_sim_start,...
                                meter.dx_res, meter.dt_res,...
                                hard_queue_limit, soft_queue_limit);
-            % Mos.estimateState();
+            Mos.estimateState();
             
             % visualize the result, (computationally heavy)
             % Mos.plotJuncs('all');
@@ -186,7 +188,7 @@ while (~exist(meter.com.stop_control, 'file') && ...
         %=========================================
         % plot the entropic result if needed
         title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
-        % Mos.plotJuncs('all', title_str);
+        Mos.plotJuncs('all', title_str);
       
         % Get the real time computation time
         dt_computation_end = now;
@@ -223,6 +225,8 @@ meter.writeAllSignalReplay;
 meter.replayHorizon();
 
 % update the boundary discretization grid
+% meter.past_period_data.link_330.q_us = NaN*ones(length(meter.past_period_data.link_330.t_us),1);
+
 meter.updateBoundaryCondition();
 
 % update the initial condition based on the estimation
@@ -253,11 +257,11 @@ CP.setConfig(meter.net, 0, meter.t_now-meter.t_horizon_start,...
 
 % constraints
 % Here e_est is only used to constrain initial condition which we know is 0
-errors.e_est = 0.08;
-errors.e_meas_flow = 0.04;
+% errors.e_est = 0.08;
+% errors.e_meas_flow = 0.04;
 CP.setConstraints(errors);
-CP.setWorkzoneCapacity([330], 0.8);
-CP.setOnrampMeterMaxRate([390], 900);
+CP.setWorkzoneCapacity([330], workzone_capacity);
+CP.setOnrampMeterMaxRate([390], max_meter_rate);
 
 % a meaningful objective here.
 % The order is important

@@ -55,15 +55,20 @@ Details:
 - Oct 24
 29. All communication between MATLAB and AIMSUN are done in km and hr.
 30. Added a function compareSignalandData to compare the desired flow value with the approximated flow value.
+31. Wrote a function in MATLAB which plots the entire horizon.
 
+- Oct 25
+32. Use green meter instead of flow meter. It now gives much better result.
+33. A few bugs in AIMSUN ang file. The effective length of links are those between detectors. So the detectors should be put as close to the boundary as possible. And the work zone length is set to be 10 meters to reduce such effect.
+34. Wrote a replay function in AIMSUN to see the signal control.
+35. Found a bug in AIMSUN. The detector should be too close to the entrance and exit, otherwise the vehicle appears or disappears without passing the detector. This gives incorrect count.
 
 Todo:
 - auto logging with time stamps
-- Investigate a bit more on signal and if it is working as expected. It seems like the meter operates as: whenever a new flow signal is written to the meter, the meter let one car go and then wait a proper amount of time to approximate that flow. Need to find a way to resolve this. May change to use the red-green meter.
-- write a replay function in AIMSUN so we can see the animation
-- Write a function in MATLAB which plots the entire horizon using measurement data. (replay in MATLAB).
-- Compare q1_ds + q2_ds with q3_us
+- Compare q1_ds + q2_ds with q3_us; may need to only set the measurement data constraints for q1 and q2.
 - Check how much error AIMSUN detector has. Or how much error is in the fundamental diagram. Can we improve the result using a more accurate FD
+- The freeflow speed does not make sense. Need to recalibrate the FD.
+
 
 
 Issues:
@@ -76,3 +81,11 @@ Issues:
 - The soft queue limit only applies in the current scenario, where a soft queue limit is only applied in the downstream link.
 - The applyEntropy only supports on ramp junctions for now.
 - currently plotting the hard queue and soft queue for visualization only works for the merge and onrampjunc.
+
+
+
+AIMSUN bugs:
+1. API for getting the unit used in AIMSUN is not functioning. It always gives metric.
+2. When using API, the first time running the replication does not work.
+3. The speed of vehicles decreases as the flow increases even if it is still in free flow. From 110 to 80 km/h
+4. If the detector is placed close to the exit of the network, then it could not count accurately due to the discretization of vehicle trajectory steps.
