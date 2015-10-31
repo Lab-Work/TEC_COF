@@ -1,5 +1,5 @@
 # Traffic Estimation and Control (TEC) toolbox based on Convex Optimizatoin Framework (COF).
-Yanning Li, Sep 13 2015, emlynlyn@gmail.com
+Yanning Li, Sep 13 2015, yli171@illinois.edu
 
 ### This toolbox supports:
 1. traffic estimation on a network (connection, merge, diverge), given the boudnary conditions. 
