@@ -145,14 +145,30 @@ d_330_ds = meter.all_measurement_data.link_330.q_ds*3600;
 d_390_us = meter.all_measurement_data.link_390.q_us*3600;
 d_390_ds = meter.all_measurement_data.link_390.q_ds*3600;
 
+veh_329 = x(CP.dv_index.link_329.initial(1):CP.dv_index.link_329.initial(2)) .* ...
+          diff(meter.net.network_hwy.link_329.X_grid_cum);
+veh_330 = x(CP.dv_index.link_330.initial(1):CP.dv_index.link_330.initial(2)) .* ...
+          diff(meter.net.network_hwy.link_330.X_grid_cum);
+veh_390 = x(CP.dv_index.link_390.initial(1):CP.dv_index.link_390.initial(2)) .* ...
+          diff(meter.net.network_hwy.link_390.X_grid_cum);
+
+d_329_ini = meter.net.network_hwy.link_329.IC .* ...
+          diff(meter.net.network_hwy.link_329.X_grid_cum);
+d_330_ini = meter.net.network_hwy.link_330.IC .* ...
+          diff(meter.net.network_hwy.link_330.X_grid_cum);
+d_390_ini = meter.net.network_hwy.link_390.IC .* ...
+          diff(meter.net.network_hwy.link_390.X_grid_cum);
+
+% [veh_329, d_329_ini, veh_329-d_329_ini]
+
 % check merge mass conservation
 % [d_329_ds+d_390_ds, d_330_us, d_329_ds+d_390_ds-d_330_us]
 [q_329_ds+q_390_ds, q_330_us, q_329_ds+q_390_ds-q_330_us]
 
 % compare solution and data
-% [q_329_ds, d_329_ds, q_329_ds-d_329_ds]
-% [q_390_ds, d_390_ds, q_390_ds-d_390_ds]
-% [q_330_ds, d_330_ds, q_330_ds-d_330_ds]
+% [q_329_ds(1:5), d_329_ds, q_329_ds(1:5)-d_329_ds]
+% [q_390_ds(1:5), d_390_ds, q_390_ds(1:5)-d_390_ds]
+% [q_330_ds(1:5), d_330_ds, q_330_ds(1:5)-d_330_ds]
 
 
 

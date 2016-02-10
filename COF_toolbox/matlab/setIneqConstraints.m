@@ -871,6 +871,7 @@ classdef setIneqConstraints
         % Function to create the model constraints matrix
         % Idea: the label at each point must be the smallest solution
         % output: 
+        %       list[:,1:end-1] * x >= list[:,end]
         %       the model constraints matrix
         function  [list] = setModelMatrix(self)
             
@@ -1888,6 +1889,7 @@ classdef setIneqConstraints
         % The corresponding variable x is constrained by
         % x - x_normal*e <= x <= x + x_normal*e, where x_normal = q_max, kc
         % output: 
+        %       list[:,1:end-1] * x >= list[:,end]
         %       the data constraints matrix
         function [list2] = setDataMatrix(self)
                         
@@ -2048,6 +2050,8 @@ classdef setIneqConstraints
         %   L <= Mi for all i
         %   inf*bi + L >= Mi for all i
         %   sum(1-bi) = 1 (one and only one bi = 0)
+        % output: 
+        %       list[:,1:end-1] * x >= list[:,end]
         function [list3] = setInternalConstraints(self)
             
             list3 = zeros(0,0);
@@ -2484,6 +2488,8 @@ classdef setIneqConstraints
         %   L <= Mi for all i
         %   inf*bi + L >= Mi for all i
         %   sum(1-bi) = 1 (one and only one bi = 0)
+        % output:
+        %       list[:,1:end-1] * x >= list[:,end]
         function [list3] = setDensityConstraints(self)
             
             list3 = zeros(0,0);
@@ -2929,6 +2935,7 @@ classdef setIneqConstraints
         %       from the downstream
         % output:
         %       the constraint matrix
+        %       list[:,1:end-1] * x >= list[:,end]
         function [list] = setHardQueueLimit(self, max_length)
             
             len_link = self.ds_pos_m - self.us_pos_m;
@@ -3046,6 +3053,7 @@ classdef setIneqConstraints
         % input:
         % output: 
         %       list: the constraint matrix; 
+        %       list[:,1:end-1] * x >= list[:,end]
         %       weight: the weight for q1, this is used for constructing
         %           the entropy condition
         function [list, weight] = setSoftQueueLimit(self)

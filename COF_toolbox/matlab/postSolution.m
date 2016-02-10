@@ -252,6 +252,7 @@ classdef postSolution < handle
         % input:
         %       juncs: the column vector of junction labels we want to
         %           plot, each junction will be plot in one seperate figure
+        %           or 'all' plots all junctions
         %       title_str: string with some info to put in the title
         function plotJuncs(self, juncs, title_str)
             
@@ -332,7 +333,7 @@ classdef postSolution < handle
                         length(self.net.network_junc.(juncStr).T), ...
                         self.t_mesh_s, xScaleLeft, xScaleRight,...
                         NLeft, kLeft, NRight, kRight, self.net.network_junc.(juncStr));
-                    h = suptitle(sprintf('Time: %s; Total Flow: %f;\n Number of steps: %d; Penalty: %f',...
+                    h = suptitle(sprintf('%s\n Total Flow: %f;\n Number of steps: %d; Penalty: %f',...
                         title_str, tt_flow, length(self.net.network_junc.(juncStr).T), tt_pen));
                     set(h,'FontSize',20)
                     
@@ -458,7 +459,7 @@ classdef postSolution < handle
                         length(self.net.network_junc.(juncStr).T), ...
                         self.t_mesh_s, xScaleLeft, xScaleRight,...
                         NLeft, kLeft, NRight, kRight,self.net.network_junc.(juncStr));
-                    h = suptitle(sprintf('Time: %s; Total Flow: %f;\n Number of steps: %d; Penalty: %f\n',...
+                    h = suptitle(sprintf('%s\n Total Flow: %f;\n Number of steps: %d; Penalty: %f\n',...
                         title_str, tt_flow, length(self.net.network_junc.(juncStr).T)), tt_pen);
                     set(h,'FontSize',24)
                     
@@ -1160,18 +1161,18 @@ classdef postSolution < handle
                 for link = self.net.network_junc.(juncStr).inlabel'
                         
                     linkStr = sprintf('link_%d',link);
-                    T_new_grid.(linkStr).T_ds = T_new_grid;
+                    T_new_grid.(linkStr).T_ds = T_tmp_cum(2:end) - T_tmp_cum(1:end-1);
                     T_new_grid.(linkStr).T_ds_cum = T_tmp_cum;
-                    T_new_grid.(linkStr).BC_ds = T_new_grid*NaN;
+                    T_new_grid.(linkStr).BC_ds = (T_tmp_cum(2:end) - T_tmp_cum(1:end-1))*NaN;
                     
                 end
                 
                 for link = self.net.network_junc.(juncStr).outlabel'
                     
                     linkStr = sprintf('link_%d',link);
-                    T_new_grid.(linkStr).T_us = T_new_grid;
+                    T_new_grid.(linkStr).T_us = T_tmp_cum(2:end) - T_tmp_cum(1:end-1);
                     T_new_grid.(linkStr).T_us_cum = T_tmp_cum;
-                    T_new_grid.(linkStr).BC_us = T_new_grid*NaN;
+                    T_new_grid.(linkStr).BC_us = (T_tmp_cum(2:end) - T_tmp_cum(1:end-1))*NaN;
                     
                 end
                 
@@ -2055,7 +2056,8 @@ classdef postSolution < handle
             % Get the initial number of vehicles 
             IC(:,1) = self.net.network_hwy.(linkStr).X_grid_cum(1:end-1);
             IC(:,2) = self.net.network_hwy.(linkStr).X_grid_cum(2:end);
-            IC(:,3) = self.net.network_hwy.(linkStr).IC;
+            IC(:,3) = self.x( self.dv_index.(linkStr).initial(1,1):...
+                              self.dv_index.(linkStr).initial(2,1));
             IC_num_veh = - ( IC(:,2) - IC(:,1)).*IC(:,3);
             IC_cum_num_veh = [0; cumsum(IC_num_veh) ];
             IC_total_num_veh = IC_cum_num_veh(end); %  should be negative
@@ -2373,7 +2375,7 @@ classdef postSolution < handle
                 % compute the intersection time
                 if abs(s_L - s_R) >= 1.0e-3
                     % make sure two slopes are not parallel
-                    pos_insct = (M_R - M_L + s_L*t_L - s_R*t_R)/(s_L - s_R);
+                    pos_insct = (M_R - M_L + s_L*pos_L - s_R*pos_R)/(s_L - s_R);
                     M_insct = s_L*(pos_insct - pos_L) + M_L;
                     
                     if pos_insct <= pos_R && pos_insct >= pos_L

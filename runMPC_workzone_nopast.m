@@ -1,9 +1,9 @@
 % Yanning Li, 
 % Oct 14, 2015
 
-% This is a short term MPC control example.
-% 1. The past period is 10 min, with 1 min data aggregation interval
-% 2. The predicted period is 10 min in the future, with grid 1 min
+% This is work zone onramp metering control example using the standard MPC
+% 1. No past period is used. 
+% 2. The predicted period is 10 min in the future, with grid 30 sec
 % 3. Data is passed back every 5 min (5 rows of data)s
 % 4. Assume the errors are 0, just for testing if the entropy condition
 %   works

@@ -53,7 +53,7 @@ classdef initNetwork < handle
         %           'onrampjunc', 'offrampjunc'. The difference between
         %           'onrampjunc' and 'merge' is that 'onrampjunc' has one
         %           'onramp' which is controllable. Same for 'offrampjunc'
-        %       ratio: 2x1 numerical array in same order to inlabel/outlabel.
+        %       ratio: 2x1 numerical priority or distribution coefficients.
         %           e.g. [0.4; 0.6]
         %       T: num_steps x 1 numerical array; time durations for each time step
         function addJunc(self, junc, inlabel, outlabel, type_junc, ratio, T)
