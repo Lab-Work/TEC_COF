@@ -441,8 +441,8 @@ classdef rampController < handle
         
         %===============================================================
         % Get new data. It 
-        % 1. return false if new data is not available;
-        % 2. return true if new data available
+        % 1. returns false if new data is not available;
+        % 2. returns true if new data available
         % 3. if new data avaliable, it will update the database in the 
         %    properties measurement_data, past_period_data
         % 4. It will update self.t_now to the latest time stamp
@@ -626,6 +626,80 @@ classdef rampController < handle
         
         
         %===============================================================
+        % This function extracts measurement data in period, and return in
+        % a boundary data struct to set the boundary conditions.
+        % input: 
+        %   period_start: the absolute time in the entire time horizon
+        %   period_end: the absolute time in the entire time horizon
+        % output:
+        %   boundary_data: struct, BC_us are NOT normalized
+        %       .(linkStr).T_us, T_us_cum, BC_us, T_ds, T_ds_cum, BC_ds
+        function boundary_data = extractBoundaryData(self, period_start, period_end)
+            
+            % Only returns the measurement data. If also need the
+            % historical data to set the boundary condition, then use the
+            % function updateBoundaryCondition instead
+            if period_end > self.t_now
+                Warning('Use updateBoundaryCondition to extract the boundary data from historical database\n');
+                return
+            end
+            
+            bound_str_list = {'us', 'ds'};
+            
+            for link  = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d', link);
+                % Two boundaries, us, or ds
+                for i = 1:length(bound_str_list)
+                    
+                    boundStr = bound_str_list{i};
+                    % strings needed
+                    t_bound = strcat('t_', boundStr);
+                    q_bound = strcat('q_', boundStr);   
+                    BC_bound = strcat('BC_', boundStr);  % by tradition, name q as BC
+                    v_bound = strcat('v_', boundStr);
+                    T_bound = strcat('T_', boundStr);
+                    T_bound_cum = strcat('T_', boundStr, '_cum');
+                    
+                    % if the data is availabel in the database
+                    if isfield(self.all_measurement_data, linkStr) && ...
+                       isfield(self.all_measurement_data.(linkStr), t_bound)
+                        
+                        index_data = self.all_measurement_data.(linkStr).(t_bound) > period_start &...
+                                     self.all_measurement_data.(linkStr).(t_bound) <= period_end;
+                        t_meas =[ period_start;...
+                            self.all_measurement_data.(linkStr).(t_bound)(index_data)];
+                        
+                        % add those data to the boundary data
+                        boundary_data.(linkStr).(T_bound) = (t_meas(2:end) - t_meas(1:end-1));
+                        boundary_data.(linkStr).(T_bound_cum) =...
+                            [0; cumsum(boundary_data.(linkStr).(T_bound))];
+                        boundary_data.(linkStr).(BC_bound) = self.all_measurement_data.(linkStr).(q_bound)(index_data);
+                        boundary_data.(linkStr).(v_bound) = self.all_measurement_data.(linkStr).(v_bound)(index_data);
+                        
+                    else
+                        % evenly discretize the simulation period to 30s
+                        T_sim = period_start:30:period_end;
+                        T_sim = unique([T_sim'; period_end]);
+                        
+                        boundary_data.(linkStr).(T_bound) = T_sim(2:end)-T_sim(1:end-1);
+                        boundary_data.(linkStr).(T_bound_sum) = ...
+                            [0; cumsum(boundary_data.(linkStr).(T_bound) ) ];
+                        
+                        % set data to be empty
+                        boundary_data.(linkStr).(BC_bound) = [];
+                        boundary_data.(linkStr).(v_bound) = [];
+                        
+                    end
+                        
+                    
+                end
+                
+            end
+            
+        end
+        
+        %===============================================================
         % once data is available, then for each link
         % 1. Measurement and historical both availabel, then update
         % 2. Measurement data available, but historical not available, then
@@ -666,9 +740,10 @@ classdef rampController < handle
                         % t_bound are the time stamps of measurement
                         t_meas = [self.t_sim_start;...
                             self.past_period_data.(linkStr).(t_bound)];
+                        % compute the duration of each time step
                         T_meas = (t_meas(2:end) - t_meas(1:end-1));
                         
-                        % compute the duration of each time step
+                        % Same for historical data
                         t_his = [self.t_now;...
                             self.predict_period_data.(linkStr).(t_bound)];
                         T_his = t_his(2:end) - t_his(1:end-1);
@@ -744,7 +819,7 @@ classdef rampController < handle
                         self.net.network_hwy.(linkStr).(T_bound) = ...
                             T_sim(2:end) - T_sim(1:end-1);
                         self.net.network_hwy.(linkStr).(T_bound_cum) = [0;...
-                            sumcum(self.net.netwoek_hwy.(linkStr).(T_bound))];
+                            cumsum(self.net.netwoek_hwy.(linkStr).(T_bound))];
                         
                         % the boundary flow measurement  
                         self.net.network_hwy.(linkStr).(BC_bound) = ...
@@ -771,7 +846,7 @@ classdef rampController < handle
                         self.net.network_hwy.(linkStr).(T_bound) = ...
                             T_sim(2:end) - T_sim(1:end-1);
                         self.net.network_hwy.(linkStr).(T_bound_cum) = [0;...
-                            sumcum(self.net.netwoek_hwy.(linkStr).(T_bound))];
+                            cumsum(self.net.netwoek_hwy.(linkStr).(T_bound))];
                         
                         % the boundary flow measurement  
                         self.net.network_hwy.(linkStr).(BC_bound) = [];
@@ -887,7 +962,6 @@ classdef rampController < handle
         % input:
         %       init_condition: struct, .(linkStr).X_grid_cum, float column
         %                               .(linkStr).IC, float column,
-        %                               normalized to kc
         function updateInitialCondition(self, init_condition)
             
             % if is nan, then evenly discretize each link into cells with
@@ -927,8 +1001,7 @@ classdef rampController < handle
                 linkStr = fields{i};
                 
                 self.net.network_hwy.(linkStr).IC =...
-                    init_condition.(linkStr).IC*...
-                    self.net.network_hwy.(linkStr).para_kc;
+                    init_condition.(linkStr).IC;
                 
                 % if grid provided, then set; otherwise not set,
                 % initNetwork will discretize the space evenly.

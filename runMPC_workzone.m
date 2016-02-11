@@ -47,19 +47,19 @@ meter.readHistoricalData('E:\\AIMSUN_MATLAB_COM\\historical_data.txt');
 % Here init_condition.(linkStr).IC is normalized
 % init_condition = [];
 init_condition.link_390.IC = zeros(5,1);
-init_condition.link_390.IC(5,1) = 0.2;
+init_condition.link_390.IC(5,1) = meter.net.network_hwy.link_390.para_kc*0.2;
 init_condition.link_390.X_grid_cum = [0:...
     meter.net.network_hwy.link_390.para_postkm*1000/5: ...
     meter.net.network_hwy.link_390.para_postkm*1000]';
 
 init_condition.link_330.IC = zeros(5,1);
-init_condition.link_330.IC(5,1) = 0.4;
+init_condition.link_330.IC(5,1) = meter.net.network_hwy.link_330.para_kc*0.4;
 init_condition.link_330.X_grid_cum = [0:...
     meter.net.network_hwy.link_330.para_postkm*1000/5: ...
     meter.net.network_hwy.link_330.para_postkm*1000]';
 
 init_condition.link_329.IC = zeros(5,1);
-init_condition.link_329.IC(5,1) = 0.8;
+init_condition.link_329.IC(5,1) = meter.net.network_hwy.link_329.para_kc*0.8;
 init_condition.link_329.X_grid_cum = [0:...
     meter.net.network_hwy.link_329.para_postkm*1000/5:...
     meter.net.network_hwy.link_329.para_postkm*1000]';
@@ -133,7 +133,6 @@ while (~exist(meter.com.stop_control, 'file') && ...
         % update the initial condition based on the estimation
         meter.updateInitialCondition(init_condition);
         
-        % Now construct a
         getEntropy = false;
         loopCounter = 0;
         
@@ -237,17 +236,20 @@ meter.past_period_data.link_330.q_us = NaN*ones(length(meter.past_period_data.li
 meter.updateBoundaryCondition();
 
 % update the initial condition based on the estimation
-init_condition.link_390.IC = ones(5,1)*0.2;
+init_condition.link_390.IC = meter.net.network_hwy.link_390.para_kc*...
+    ones(5,1)*0.2;
 init_condition.link_390.X_grid_cum = [0:...
     meter.net.network_hwy.link_390.para_postkm*1000/5: ...
     meter.net.network_hwy.link_390.para_postkm*1000]';
 
-init_condition.link_330.IC = ones(5,1)*0.2;
+init_condition.link_330.IC = meter.net.network_hwy.link_330.para_kc*...
+    ones(5,1)*0.2;
 init_condition.link_330.X_grid_cum = [0:...
     meter.net.network_hwy.link_330.para_postkm*1000/5: ...
     meter.net.network_hwy.link_330.para_postkm*1000]';
 
-init_condition.link_329.IC = ones(5,1)*0.2;
+init_condition.link_329.IC = meter.net.network_hwy.link_329.para_kc*...
+    ones(5,1)*0.2;
 init_condition.link_329.X_grid_cum = [0:...
     meter.net.network_hwy.link_329.para_postkm*1000/5:...
     meter.net.network_hwy.link_329.para_postkm*1000]';

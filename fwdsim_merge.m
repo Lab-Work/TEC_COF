@@ -66,24 +66,20 @@ net.addJunc(1, [1, 2]', 3, 'merge', [1; 1], T_init_grid);
 % rho_tmp = randn(sim_steps, 1) + 0.5;
 % rho_tmp(rho_tmp <= 0.2) = 0.2;
 % rho_tmp(rho_tmp >= 1.5) = 1.5;
-% Ini_1.IC = rho_tmp;
-Ini_1.IC = [1, 1, 1, 0, 0]';
 
 % rho_tmp = randn(sim_steps, 1) + 0.5;
 % rho_tmp(rho_tmp <= 0.2) = 0.2;
 % rho_tmp(rho_tmp >= 1.5) = 1.5;
-% Ini_2.IC = rho_tmp;
-Ini_2.IC = [1, 1, 1, 0, 0]';
 
 % rho_tmp = randn(sim_steps, 1) + 0.5;
 % rho_tmp(rho_tmp <= 0.2) = 0.2;
 % rho_tmp(rho_tmp >= 1.5) = 1.5;
-% Ini_3.IC = rho_tmp;
-Ini_3.IC = [1, 1, 1, 1, 1]';
 
-net.setInitialCon(1,Ini_1);
-net.setInitialCon(2,Ini_2);
-net.setInitialCon(3,Ini_3);
+Ini.link_1.IC = net.network_hwy.link_1.para_kc*[1, 1, 1, 0, 0]';
+Ini.link_2.IC = net.network_hwy.link_2.para_kc*[1, 1, 1, 0, 0]';
+Ini.link_3.IC = net.network_hwy.link_3.para_kc*[1, 1, 1, 1, 1]';
+
+net.setInitialCon(Ini);
 
 %===============================================================
 % set the boundary condition
@@ -94,19 +90,19 @@ net.setInitialCon(3,Ini_3);
 % q_tmp(q_tmp <= 0.5) = 0.5;
 % q_tmp(q_tmp >= 0.9) = 0.9;
 % q1_us_data = q_tmp;
-q1_us_data = [1, 0, 1, 1, 1]';
+q1_us_data = net.network_hwy.link_1.para_qmax*[1, 0, 1, 1, 1]';
     
 % q_tmp = randn(sim_steps, 1) + 1;
 % q_tmp(q_tmp <= 0.5) = 0.5;
 % q_tmp(q_tmp >= 0.9) = 0.9;
 % q2_us_data = q_tmp;
-q2_us_data = [1, 0, 1, 1, 1]';
+q2_us_data = net.network_hwy.link_2.para_qmax*[1, 0, 1, 1, 1]';
 
 % q_tmp = randn(sim_steps, 1) + 1;
 % q_tmp(q_tmp <= 0.5) = 0.5;
 % q_tmp(q_tmp >= 0.9) = 0.9;
 % q3_ds_data = q_tmp;
-q3_ds_data = [1,1,1,1,1]';
+q3_ds_data = net.network_hwy.link_3.para_qmax*[1,1,1,1,1]';
 
 %===============================================================
 % Set all parameters intended for control as empty or disabled

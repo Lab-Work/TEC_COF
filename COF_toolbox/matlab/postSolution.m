@@ -2460,7 +2460,7 @@ classdef postSolution < handle
                 rho = dM./dx;
 
                 % normalize to kc
-                density.(linkStr).IC = rho/self.net.network_hwy.(linkStr).para_kc;
+                density.(linkStr).IC = rho;
                 density.(linkStr).X_grid_cum = pt_grid.position;
 
             end

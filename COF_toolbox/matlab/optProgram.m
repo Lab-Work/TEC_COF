@@ -1,74 +1,68 @@
-% Yanning Li, Sep 01, 2015
-% This class construct the optimization program.
-% 1. The program use relative time: start time is always 0.
-% 2. Calls setIneqConstraints and setEqConstraints to set constraints
-% 3. A couple of function to properly construct objective functions.
 
 
 classdef optProgram < handle
+    % optProgram constructs the optimization program.
+    % Yanning Li, Jan 10, 2016
+    % 1. The program uses relative time: start time is always 0.
+    % 2. Calls setIneqConstraints_noshock and setEqConstraints to set constraints
+    % 3. Several function for applying the entropy condition and constructing objective functions.
     
     properties
-        % configuration
-        start_time;        % always 0
+        start_time; % start time of the CP horizon; always 0
         
-        % 1. now_time is used to set the data constraints separately:
-        %   measurement or historical
-        % 2. Reduce the number of constraints: do not try to control the
-        %   past
-        now_time;   
-        end_time;
+        now_time;   % current clock time in AIMSUN simulation
+                    % 1. now_time is used to set the data constraints separately:
+                    %   measurement or historical data
+                    % 2. Reduce the number of constraints: do not try to control the past
+        end_time;   % end time of the CP horizon
         
-        % set hard constraints of the queue limit
-        % a struct; .(linkStr) = maximal queue length in meters
-        %          or .onramp sets the ratio for all onramps
-        hard_queue_limit;  
+        hard_queue_limit;   % a hard limit on the length of queue, infeasible solution if violated
+                            % set hard constraints of the queue limit
+                            % a struct; .(linkStr) = maximal queue length in meters
+                            %          or .onramp sets the ratio for all onramps
         
-        % set soft queue limit constraints
-        % a struct: .(linkStr) = the queue limit length in meters
-        soft_queue_limit;
-        q_weight;   % this keeps track of the weight penalized on the upstream
-                    % flow when using soft queue limit
+        soft_queue_limit;   % a soft limit on the length of queue, penalty if violated
+                            % set soft queue limit constraints
+                            % a struct: .(linkStr) = the queue limit length in meters
+        q_weight;   % tracks the weight penalized on the upstream flow when using soft queue limit
         
-        % Decision variable locator, a atruct
-        % dv_index.(linkStr).upstream; .downstream; .initial; ... 
-        dv_index;
-        dv_index_link_max; % the maximum index for links
+        dv_index;   % struct, locates the index of decision variables
+                    % dv_index.(linkStr).upstream; .downstream; .initial; ...
+        dv_index_link_max;  % the maximum index for links
+                            % there are additionary decision variables 
+                            % ( the L1 error e=|q1-Rq1|) at merges or diverges 
+                            % that we would like to add in the decision variable.
+                            % dv_index.(juncStr) = [start index; end index]
         
-        % there are additionary decision variables 
-        % ( the L1 error e=|q1-Rq1|) at merges or diverges 
-        % that we would like to add in the decision variable.
-        % dv_index.(juncStr) = [start index; end index]
-        dv_index_max;    % the maximal index
-                
-        % save a copy of the net object which contains the network topology
-        % as well as the boudary conditions
-        net;
+        dv_index_max;   % the maximal index in the decision variable
+                        
+        net;    % the network object
+                % save a copy of the net object which contains the network topology
+                % as well as the boudary conditions
         
-        % a matrix that contains all inequality constraints from all links
-        Aineq;
-        bineq;
-        size_Aineq; % save the size of Aineq
+        Aineq;  % a matrix with all inequality constraints, Aineq * x <= bineq
+        bineq;  % a column vector, Aineq * x <= bineq
+        size_Aineq; % size of Aineq
         
-        % a matrix that contains all equality constraints for all links
-        Aeq;
-        beq;
-        size_Aeq;   % save the size of Aeq
+        Aeq;    % a matrix with all equality constraints, Aeq * x = beq
+        beq;    % a column vector, Aeq * x = beq
+        size_Aeq;   % size of Aeq
         
-        % upper, lower, and type of each decision variable
-        lb;
-        ub;
-        ctype;
+        lb;     % column vector, lower bound of decision variables
+        ub;     % column vector, upper bound of decision variables
+        ctype;  % column vector, type of decision variables
         
-        H;  % for defining quadratic objective
-        f;  % the linear objective
+        H;  % matrix, minimize x'*H*x
+        f;  % column vector, minimize f*x
 
     end
     
     
     methods
         %===============================================================
-        % initialize object
         function self = optProgram(~)
+            % initializes the convex program and allocates memory 
+            
             self.start_time = 0;
             self.now_time = 0;
             self.end_time = 0;
@@ -98,17 +92,17 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % set configuration for simulation
-        % input:
-        %       net: the network object
-        %       start_time: the start time of the simulation. Should be 0
-        %       now_time, the current time for the simulation.
-        %       end_time: the end time of this simulation
-        %       hard_queue_limit: struct, .(linkStr), in meters,
-        %       soft_queue_limit: struct, .(linkStr), in meters,
-        %       e.g. if 0.5, then the queue must not extend to half link
         function setConfig(self, net, start_time, now_time,...
                 end_time, hard_queue_limit, soft_queue_limit)
+            % set configuration for simulation
+            % input:
+            %       net: the network object
+            %       start_time: the start time of the simulation. Should be 0
+            %       now_time, the current time for the simulation.
+            %       end_time: the end time of this simulation
+            %       hard_queue_limit: struct, .(linkStr), in meters,
+            %       soft_queue_limit: struct, .(linkStr), in meters,
+            %       e.g. if 0.5, then the queue must not extend to half link
             
             self.net = net;
             
@@ -134,8 +128,11 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % set Linear constraints
         function setConstraints(self, errors)
+            % Set linear equality and inequality constraints for all links
+            % Calls the setIneqConstraints_noshock and setEqConstraints
+            % input:
+            %       errors, struct, with errors for different data
             
             % set inequality for each link
             for link = self.net.link_labels'
@@ -479,12 +476,12 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % set work zone capacity
-        % input:
-        %       links: a column vector of links whose downstream bounds are
-        %              connected to a work zone.
-        %       capacity: a column vector, the percentage of the original capacity
         function setWorkzoneCapacity(self, links, capacity)
+            % Set work zone capacity
+            % input:
+            %       links: a column vector of links whose downstream bounds are
+            %              connected to a work zone.
+            %       capacity: a column vector, the percentage of the original capacity
             
             for i = 1:length(links)
                 
@@ -501,15 +498,14 @@ classdef optProgram < handle
             
         end
         
-        
-        
+
         %===============================================================
-        % set onramp maximum rate
-        % input:
-        %       links: a column vector of links whose downstream bounds are
-        %              connected to a work zone.
-        %       rate: a column vector, the maximum onramp rate in veh/hr
         function setOnrampMeterMaxRate(self, links, rate)
+            % Set onramp maximum rate
+            % input:
+            %       links: a column vector of links whose downstream bounds are
+            %              connected to a work zone.
+            %       rate: a column vector, the maximum onramp rate in veh/hr
             
             for i = 1:length(links)
                 
@@ -526,13 +522,13 @@ classdef optProgram < handle
         end
         
         
-        
         %===============================================================
-        % solve using cplex
-        % H and f are objective functions
-        % min x'*H*x + f*x
-        % s.t. Ax < b
         function [x, fval, exitflag, output] = solveProgram(self)
+            % Solves CP using cplex
+            % min x'*H*x + f*x
+            % s.t. Aineq*x <= bineq
+            %      Aeq*x = beq
+            %      lb <= x <= ub
             
             try
                 % CPLEX
@@ -562,16 +558,18 @@ classdef optProgram < handle
             
         end
         
+        
         %===============================================================
-        % Add entropy condition
-        % Intuition: 
-        % min sum  -w(i)T(i)*(alpha*(q1(i)+q2(i)) - beta*|q2(i)-R*q1(i)|))...
-        % need w(i) > w(i+1) while alpha and beta satisfying conditions
-        % input:
-        %       junction: nx1 vector, the junctions that we want to add
-        %           entropic condition; NOTE: for now, the theory only
-        %           support one junction
         function addEntropy(self, junction)
+            % Add entropy condition to a junction for forward simulation.
+            % It assumes only constraints at the grid point.
+            % Intuition:
+            % min sum  -w(i)T(i)*(alpha*(q1(i)+q2(i)) - beta*|q2(i)-R*q1(i)|))...
+            % need w(i) > w(i+1) while alpha and beta satisfying conditions
+            % input:
+            %       junction: nx1 vector, the junctions that we want to add
+            %           entropic condition; NOTE: for now, the theory only
+            %           support one junction
             
             if strcmp(junction, 'all')
                 junction = self.net.junc_labels;
@@ -738,8 +736,8 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % maximum upstream flow for one link
         function maxUpflow(self, links)
+            % Maximum upstream flow for one link
             
             if isempty(self.f)
                 % if not defiend by any function yet
@@ -765,11 +763,11 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % maximize downstream flow for one link
-        % This is to prevent the congestion in the main exit. 
-        % weight: a very small weight since this is just to deal with the
-        %         is not the main objective
         function maxDownflow(self, links, weight)
+            % Maximize downstream flow for one link
+            % This is to prevent the congestion in the main exit.
+            % weight: a very small weight since this is just to deal with the
+            %         is not the main objective
             
             if isempty(self.f)
                 % if not defiend by any function yet
@@ -795,8 +793,8 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % minimize downstream flow for one link
         function minDownflow(self, links)
+            % Minimize downstream flow for one link
             
             if isempty(self.f)
                 % if not defiend by any function yet
@@ -822,13 +820,13 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % maxmize the onramp flow
-        % NOTE: set the entropy condition first, then set the maximize
-        % onramp flow objective. the weight for the onramp flow must be
-        % smaller than the entropy condition weight
-        % input: 
-        %       juncs: a column vector of onrampjunc IDs,or 'all'
         function maxOnrampFlow(self, juncs)
+            % Maxmize the onramp flow
+            % NOTE: set the entropy condition first, then set the maximize
+            % onramp flow objective. the weight for the onramp flow must be
+            % smaller than the entropy condition weight
+            % input:
+            %       juncs: a column vector of onrampjunc IDs,or 'all'
             
             if isempty(self.f)
                error('The entropy condition for the onrampjunc must be set first')
@@ -882,10 +880,9 @@ classdef optProgram < handle
         end
         
         
-        
         %===============================================================
-        % maximize the error caused by not following the rules
         function maxError(self,juncs)
+            % Maximize the error caused by not following the rules
             
             if isempty(self.f)
                 % if not defiend by any function yet
@@ -906,13 +903,12 @@ classdef optProgram < handle
  
         end
         
-        
-        
+
         %===============================================================
-        % penalize the congestion for soft queue limit
-        % Here for simplicity, try to use min \sum s, where s is the slack
-        % variable  
         function penalizeCongestion(self)
+            % Penalize the congestion for soft queue limit
+            % Here for simplicity, try to use min \sum s, where s is the slack
+            % variable  
             
             if isempty(self.q_weight)
                 return
@@ -945,12 +941,10 @@ classdef optProgram < handle
         end
         
         
-        
         %===============================================================
-        % check if the constructed objective function satisfies the entropy
-        % condition, if not, add additional terms to make it entropy
-        % REMARK: it only supports onramp for this version
         function applyEntropy(self)
+            % checks and applies entropy condition to the objective
+            % REMARK: it only supports onramp in this version
             
             for junc = self.net.junc_labels'
                 
@@ -1010,25 +1004,23 @@ classdef optProgram < handle
         end
         
         
-        
         %===============================================================
-        % utility function
-        % This function generate quadratic matrix at a given dimension
-        % This function is for regularization of a sequence of variables.
-        % input:
-        %       n, the dimension of the matrix
-        % output:
-        %       M, the quadratic matrix.
-        % example:
-        % Regularize q1, q2, q3:
-        % (q1-q2)^2 + (q2-q3)^2 in matrix form:
-        % M = quad_matrix(3)
-        % M = [1  -1  0;
-        %      -1  2  -1;
-        %      0  -1  1];
-        % quad_matrix(1) returns [0];
-        % quad_matrix(0) returns [] and warning;
         function [M] = quad_matrix(~, n)
+            % This function generate quadratic matrix at a given dimension
+            % This function is for regularization of a sequence of variables.
+            % input:
+            %       n, the dimension of the matrix
+            % output:
+            %       M, the quadratic matrix.
+            % example:
+            % Regularize q1, q2, q3:
+            % (q1-q2)^2 + (q2-q3)^2 in matrix form:
+            % M = quad_matrix(3)
+            % M = [1  -1  0;
+            %      -1  2  -1;
+            %      0  -1  1];
+            % quad_matrix(1) returns [0];
+            % quad_matrix(0) returns [] and warning;
             
             if n==0
                 sprintf('Warning: Regularization over an empty variable sequence.\n');
@@ -1048,13 +1040,11 @@ classdef optProgram < handle
         
         
         %===============================================================
-        % utility function
-        % This function separates the column vector (x, lb, ub, f) for
-        % better interpretation
-        % input:
-        %       col: the column vector to be dissected and investigated
-        % TODO: to be finished.
         function dissectDvInfo(self, col)
+            % This function separates the column vector (x, lb, ub, f) for better interpretation
+            % input:
+            %       col: the column vector to be dissected and investigated
+            % TODO: to be finished.
             
             if length(col) ~= self.dv_index_max
                 error('col must have the same length as the decision variable.')
