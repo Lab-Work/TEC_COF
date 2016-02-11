@@ -2,6 +2,7 @@
 % Jan 10, 2016
 
 % This is work zone onramp metering control example using the standard MPC
+% link 329 (fwy) and 390 (onramp) merge to link 330 (fwy)
 % 1. No past period is used. 
 % 2. The predicted period is 10 min in the future, with grid 30 sec
 % 3. Data is streaming back every 1 min.
@@ -210,12 +211,18 @@ while (~exist(meter.com.stop_control, 'file') && ...
             CP.setWorkzoneCapacity([330], workzone_capacity);
             CP.setOnrampMeterMaxRate([390], max_meter_rate);
             
-            % a meaningful objective here. 
+%             % f v1
+%             % The order is important
+%             CP.maxDownflow([330], 1);
+%             CP.penalizeCongestion;
+%             CP.applyEntropy;
+%             CP.maxOnrampFlow('all');
+            
+            % f v2
             % The order is important
-            CP.maxDownflow([330], 1);
-            CP.penalizeCongestion;
-            CP.applyEntropy;
-            CP.maxOnrampFlow('all');
+            CP.penalizeCongestion_v2(1);
+            CP.maxOnrampFlow_v2(390, 1);
+            CP.applyEntropy_v2;
             
             
             % solve the CP
@@ -229,11 +236,8 @@ while (~exist(meter.com.stop_control, 'file') && ...
 %                                meter.t_sim_end-meter.t_sim_start,...
 %                                meter.dx_res, meter.dt_res,...
 %                                hard_queue_limit, soft_queue_limit);
-            % Mos.estimateState();
-            
-            % visualize the result, (computationally heavy)
-            % Mos.plotJuncs('all');
-            
+%             Mos.estimateState();
+%             
 %             [getEntropy, steps] = Mos.checkEntropy(entropyTolerance);
 %             
 %             if getEntropy == false
@@ -245,8 +249,8 @@ while (~exist(meter.com.stop_control, 'file') && ...
         
         %=========================================
         % plot the entropic result if needed
-        % title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
-        % Mos.plotJuncs('all', title_str);
+%         title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
+%         Mos.plotJuncs('all', title_str);
       
         % Get the real time computation time
         dt_computation_end = now;

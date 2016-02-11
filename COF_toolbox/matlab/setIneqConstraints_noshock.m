@@ -267,6 +267,14 @@ classdef setIneqConstraints_noshock
                                     self.dv_max+self.num_initial_con];
             self.dv_max = self.dv_max + self.num_initial_con;
             
+            % Boundary condition
+            self.T_us = Boundary_con.T_us;
+            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
+            self.T_ds = Boundary_con.T_ds;
+            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
+            self.qin_meas = Boundary_con.BC_us;
+            self.qout_meas = Boundary_con.BC_ds;
+            
             if isfield(Traj_con, 'x_min_traj')
                 self.num_internal_con = length(Traj_con.x_min_traj);
                 % internal L
@@ -302,11 +310,21 @@ classdef setIneqConstraints_noshock
                     error('Current version does not support soft queue limit with internal or density condition.')
                 end
                 
-                tmp_grid = self.now_time:30:self.end_time;
-                if tmp_grid(end)~= self.end_time
-                    tmp_grid = [tmp_grid'; self.end_time];
-                end
-                self.soft_queue_t = tmp_grid';
+                % The time grid is the intersection point between vf from
+                % upstream boudnary condition with x_queue
+                dt = (self.ds_pos_m - soft_queue_limit)/self.v;
+                tmp_grid = self.T_us_cum + dt;
+                tmp_grid = tmp_grid( tmp_grid <= self.end_time);
+                
+                self.soft_queue_t = tmp_grid;
+                
+                % Evenly sampling in the time domain.
+%                 tmp_grid = self.now_time:30:self.end_time;
+%                 if tmp_grid(end)~= self.end_time
+%                     tmp_grid = [tmp_grid'; self.end_time];
+%                 end
+%                 self.soft_queue_t = tmp_grid';
+                
                 self.num_soft_queue_pt = length(tmp_grid);
                 self.soft_queue_x = ones(self.num_soft_queue_pt,1)*...
                     (self.ds_pos_m-soft_queue_limit);
@@ -323,14 +341,6 @@ classdef setIneqConstraints_noshock
             end            
             self.dv_var_max = self.dv_max;
             
-            
-            % Boundary condition
-            self.T_us = Boundary_con.T_us;
-            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
-            self.T_ds = Boundary_con.T_ds;
-            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
-            self.qin_meas = Boundary_con.BC_us;
-            self.qout_meas = Boundary_con.BC_ds;
             
             % find out the number of past steps and the number of predict
             % steps
@@ -3089,6 +3099,9 @@ classdef setIneqConstraints_noshock
         
         %==========================================================================
         % Function to create soft constraints for queue limits
+        % REMARK: only for the merge example presented in paper. In
+        % different scenarios, use the theory to rederive the weights
+        % needed for the admissible solution.
         % For any point (x,t), define vehicle label L, and slack variable s
         % constraints: L <= M^{us(+initial_free), ds(+initial_cong) }; 
         %              L = M^us - s; s>=0; 
@@ -3097,16 +3110,28 @@ classdef setIneqConstraints_noshock
         % output: 
         %       list: the constraint matrix; 
         %       list[:,1:end-1] * x >= list[:,end]
-        %       weight: the weight for q1, this is used for constructing
-        %           the entropy condition
-        function [list, weight] = setSoftQueueLimit(self)
+        %       weight: s = f(q3(j)) = f(q1(_+q2(j)), weight tracks the
+        %           implicit total weight added to q1(j) in the objective when
+        %           minimizing sum s(k). This is used for constructing the
+        %           objective function such that penalizing s wont stop
+        %           traffic from upstream freeway.
+        %       scale: Due to the introduction of queue limit point,
+        %           to get the entropy solution for q1(j), the objective must satisfy:
+        %           df/dq1(j-1) > T_(j-1)/t_(j) * df/dq1(j), 
+        %           where T_j= max_coe_q1(j), t_j = min_coe_q1(j)       
+        function [list, weight, scale] = setSoftQueueLimit(self)
             
             % Each point introduces 5 inequalities
             list = zeros(self.num_soft_queue_pt*5, self.size_row);
             rows = 0;
+            
             % keep track of the weight of q1 which is in M^us
             list_us = zeros(self.num_soft_queue_pt, self.size_row);
             rows_us = 0;
+            
+            % keep tracks of the scale T_(j-1)/t_(j)
+            list_q1_scale = zeros(self.num_soft_queue_pt, self.size_row);
+            rows_q1_scale = 0;
                         
             % for each point
             for pt = 1:self.num_soft_queue_pt
@@ -3197,12 +3222,17 @@ classdef setIneqConstraints_noshock
                     rows = rows+1;
                     list(rows,:) = array;
                     
-                    % M_us - s - L >= & L - M_us + s >=0
+                    % M_us - s - L >= 0
                     array = M_us;
                     array(1, self.dv_link.queue_L(1)-1 + pt) = -1;
                     array(1, self.dv_link.queue_s(1)-1 + pt) = -1;
                     rows = rows+1;
                     list(rows,:) = array;
+                    % get the scale from this specific constraitns
+                    rows_q1_scale = rows_q1_scale+1;
+                    list_q1_scale(rows_q1_scale, :) = array;
+                    
+                    % L - M_us + s >=0
                     array = -array;
                     rows = rows+1;
                     list(rows,:) = array;
@@ -3220,8 +3250,10 @@ classdef setIneqConstraints_noshock
             % truncate matrix
             list = list(1:rows,:);
             list_us = list_us(1:rows_us,:);
+            list_q1_scale = list_q1_scale(1:rows_q1_scale, :);
             
-            % compute the sum of the weight
+            % compute the implicit total weight on q1(j) when 
+            % minimizing sum s_k
             if ~isempty(list_us)
                 weight = sum( list_us(:,...
                     self.dv_link.upstream(1):...
@@ -3230,6 +3262,31 @@ classdef setIneqConstraints_noshock
             else
                 weight = [];
             end
+            
+            % scale(j) = T_(j)/t_(j+1)
+            scale = zeros( length(self.T_us)-1 ,1);
+            if ~isempty(list_q1_scale)
+                
+                for j = 2: length(self.T_us)
+                    
+                    index = self.dv_link.upstream(1)-1 + j;
+                    % find the smallest non-zero value
+                    t_j = min( list_q1_scale( list_q1_scale(:,index)>0 ,index) );
+                    T_j_1 = self.T_us( j-1 );
+                    
+                    if ~isempty(t_j) && ~isempty(T_j_1)
+                        % if need this scale
+                        scale( index- self.dv_link.upstream(1) ) = T_j_1/t_j;
+                    else
+                        % if not additional constraints
+                        T_j = self.T_us( j );
+                        scale(index- self.dv_link.upstream(1) ) = T_j_1/T_j;
+                    end
+                end
+            else
+                scale = [];
+            end
+            
             
         end
     

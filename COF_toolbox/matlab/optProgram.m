@@ -24,7 +24,8 @@ classdef optProgram < handle
         soft_queue_limit;   % a soft limit on the length of queue, penalty if violated
                             % set soft queue limit constraints
                             % a struct: .(linkStr) = the queue limit length in meters
-        q_weight;   % tracks the weight penalized on the upstream flow when using soft queue limit
+        q_implicit_weight;  % tracks the weight penalized on the upstream flow when using soft queue limit
+        q_scale;            % scale(j)= T_(j)/t_(j+1) for setting the objective function
         
         dv_index;   % struct, locates the index of decision variables
                     % dv_index.(linkStr).upstream; .downstream; .initial; ...
@@ -118,7 +119,7 @@ classdef optProgram < handle
             if ~isstruct(soft_queue_limit)
                 warning('soft_queue_limit should be a struct')
                 self.soft_queue_limit = struct;
-                self.q_weight = [];
+                self.q_implicit_weight = [];
             else
                 self.soft_queue_limit = soft_queue_limit;
             end
@@ -222,13 +223,16 @@ classdef optProgram < handle
                 end
                 
                 % set up soft queue limit
-                [link_soft_queue_constraints, q_weight_link] = Ineq.setSoftQueueLimit;
+                [link_soft_queue_constraints, q_weight_link, q_scale_link] = Ineq.setSoftQueueLimit;
                 
                 % soft queue limit now only support this specific scenario,
                 % where the soft queue limit is applied in the downstream
                 % merge
                 if ~isempty(q_weight_link)
-                    self.q_weight = q_weight_link;
+                    self.q_implicit_weight = q_weight_link;
+                end
+                if ~isempty(q_scale_link)
+                    self.q_scale = q_scale_link;
                 end
                 
                 % all constraints for this link
@@ -733,89 +737,103 @@ classdef optProgram < handle
             
             end
         end
-        
-        
-        %===============================================================
-        function maxUpflow(self, links)
-            % Maximum upstream flow for one link
-            
-            if isempty(self.f)
-                % if not defiend by any function yet
-                self.f = zeros(self.dv_index_max,1);
-            end
-            
-            f_upflow = zeros(self.dv_index_max,1);
-            
-            for link = links'
-                
-                linkStr = sprintf('link_%d', link);
-                
-                T_grid = self.net.network_hwy.(linkStr).T_us;
-            
-                num_steps = length(T_grid);
-                f_upflow(self.dv_index.(linkStr).upstream(1,1):...
-                         self.dv_index.(linkStr).upstream(2,1)) = -(num_steps:-1:1)'.*T_grid;
-            end
-            
-            self.f = self.f + f_upflow;
+         
 
+        %===============================================================
+        function penalizeCongestion(self)
+            % Penalize the congestion for soft queue limit
+            % Here for simplicity, try to use min \sum s, where s is the slack
+            % variable  
+            
+            if isempty(self.q_implicit_weight)
+                return
+            end
+            
+            if isempty(self.f)
+                self.f = zeros(self.dv_index_max, 1);
+            end
+            
+            f_penalty = zeros(self.dv_index_max, 1);
+            
+            % \sum_over_links \sum_over_steps s
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d',link);
+                
+                if isfield(self.soft_queue_limit, linkStr)
+                    
+                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
+                              self.dv_index.(linkStr).queue_s(2)) = 1;
+                    
+                    self.f = self.f + f_penalty;      
+                end
+                
+            end
+            
+            
         end
         
         
         %===============================================================
-        function maxDownflow(self, links, weight)
-            % Maximize downstream flow for one link
-            % This is to prevent the congestion in the main exit.
-            % weight: a very small weight since this is just to deal with the
-            %         is not the main objective
+        function applyEntropy(self)
+            % checks and applies entropy condition to the objective
+            % REMARK: it only supports onramp in this version
             
-            if isempty(self.f)
-                % if not defiend by any function yet
-                self.f = zeros(self.dv_index_max,1);
+            for junc = self.net.junc_labels'
+                
+                juncStr = sprintf('junc_%d',junc);
+                
+                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
+                    error('applyEntropy function only supports onrampjunc type in current version.')
+                else
+                    % find out the upstream freeway id
+                    inlinks = self.net.network_junc.(juncStr).inlabel;
+                    linkStr = sprintf('link_%d',inlinks(1));
+                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                        usFwyStr = linkStr;
+                    else
+                        usFwyStr = sprintf('link_%d', inlinks(2));
+                    end
+                    
+                    if isempty(self.f)
+                        error('Need to construct the objective function before applying entropy conditions.')
+                    end
+                    
+                    % By entropy condition, the absolute weights for q(i) need to be
+                    % monotonically decreasing over i. (Monotonically increasing since negative)
+                    % Combine self.f and slack variable (implicit weights)
+                    q_weight_f = self.f(self.dv_index.(usFwyStr).downstream(1,1):...
+                                        self.dv_index.(usFwyStr).downstream(2,1));
+                    if ~isempty(self.q_implicit_weight)
+                        q_weight_implicit = q_weight_f + self.q_implicit_weight;
+                    else
+                        q_weight_implicit = q_weight_f;
+                    end
+                    
+                    % all weights are negativ
+                    % check if monotonically increasing
+                    if all(diff(q_weight_implicit)>0) 
+                        disp('Status: Entropy check passed.')
+                    else
+                        % construct a desired combined entropy objective
+                        T_grid = self.net.network_hwy.(usFwyStr).T_ds;
+                        num_steps = length(T_grid);
+                        q_weight_combined = -(num_steps:-1:1)'.*T_grid;
+                        
+                        % the explicit weight that need to be set to
+                        % counter affect the penalty of the queue
+                        q_weight_explicit = q_weight_combined - q_weight_implicit;
+                       
+                        self.f(self.dv_index.(usFwyStr).downstream(1,1):...
+                               self.dv_index.(usFwyStr).downstream(2,1)) =...
+                               q_weight_explicit;
+                        disp('Status: Entropy conditions applied.')
+                    end
+                    
+                end
+                
             end
             
-            f_downflow = zeros(self.dv_index_max,1);
-            
-            for link = links'
-                
-                linkStr = sprintf('link_%d', link);
-                
-                T_grid = self.net.network_hwy.(linkStr).T_ds;
-            
-                num_steps = length(T_grid);
-                f_downflow(self.dv_index.(linkStr).downstream(1,1):...
-                         self.dv_index.(linkStr).downstream(2,1)) = -(num_steps:-1:1)'.*T_grid*weight;
-            end
-            
-            self.f = self.f + f_downflow;
- 
-        end
-        
-        
-        %===============================================================
-        function minDownflow(self, links)
-            % Minimize downstream flow for one link
-            
-            if isempty(self.f)
-                % if not defiend by any function yet
-                self.f = zeros(self.dv_index_max,1);
-            end
-            
-            f_downflow = zeros(self.dv_index_max,1);
-            
-            for link = links'
-                
-                linkStr = sprintf('link_%d', link);
-                
-                T_grid = self.net.network_hwy.(linkStr).T_ds;
-            
-                num_steps = length(T_grid);
-                f_downflow(self.dv_index.(linkStr).downstream(1,1):...
-                         self.dv_index.(linkStr).downstream(2,1)) = -(num_steps:-1:1)'.*T_grid;
-            end
-            
-            self.f = self.f - f_downflow;
- 
         end
         
         
@@ -881,6 +899,212 @@ classdef optProgram < handle
         
         
         %===============================================================
+        function penalizeCongestion_v2(self, weight)
+            % Penalize the congestion for soft queue limit in obj f v2
+            % min \sum{s_k}
+            % input:
+            %       weight: the weight for \sum(sk)
+            if isempty(self.q_implicit_weight)
+                return
+            end
+            
+            if isempty(self.f)
+                self.f = zeros(self.dv_index_max, 1);
+            end
+            
+            f_penalty = zeros(self.dv_index_max, 1);
+            
+            % \sum_over_links \sum_over_steps s
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d',link);
+                
+                if isfield(self.soft_queue_limit, linkStr)
+                    
+                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
+                              self.dv_index.(linkStr).queue_s(2)) = weight;
+                    
+                    % update the implicit weight
+                    self.q_implicit_weight = weight*self.q_implicit_weight;
+                    
+                    self.f = self.f + f_penalty;      
+                end
+                
+            end
+            
+            
+            
+            
+        end
+        
+        %===============================================================
+        function maxOnrampFlow_v2(self, link, weight)
+            % Maxmize the onramp flow but using v2 objective function
+            % NOTE: the onramp flow abs weight should be decreasing
+            % input:
+            %       link: link_id of the onramp
+            %       weight: the smallest weight for q_onramp(j_max)*T_jmax
+            
+            if isempty(self.f)
+                self.f = zeros(self.dv_index_max, 1);
+            end
+            
+            f_downflow = zeros(self.dv_index_max,1);
+            
+            onRampStr = sprintf('link_%d', link);
+            
+            T_grid = self.net.network_hwy.(onRampStr).T_ds;
+            num_steps = length(T_grid);
+            tmp_f =  (-(num_steps:-1:1)*0.1 - 0.9)'.*T_grid*weight;
+            
+            f_downflow(self.dv_index.(onRampStr).downstream(1,1):...
+                self.dv_index.(onRampStr).downstream(2,1)) = tmp_f;
+            
+            self.f = self.f + f_downflow;
+ 
+        end
+        
+        
+        %===============================================================
+        function applyEntropy_v2(self)
+            % checks and applies entropy condition to the objective f v2 in the onramp metering control example
+            % REMARK: it only supports the onramp metering control example
+            
+            for junc = self.net.junc_labels'
+                
+                juncStr = sprintf('junc_%d',junc);
+                
+                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
+                    error('applyEntropy function only supports onrampjunc type in current version.')
+                else
+                    % find out the upstream freeway id
+                    inlinks = self.net.network_junc.(juncStr).inlabel;
+                    linkStr = sprintf('link_%d',inlinks(1));
+                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
+                        usFwyStr = linkStr;
+                        onRampStr = sprintf('link_%d', inlinks(2));
+                    else
+                        onRampStr = linkStr;
+                        usFwyStr = sprintf('link_%d', inlinks(2));
+                    end
+                    % the downstream freeway id
+                    outlink = self.net.network_junc.(juncStr).outlabel;
+                    dsFwyStr = sprintf('link_%d', outlink);
+                    
+                    if isempty(self.f)
+                        error('Need to construct the objective function before applying entropy conditions.')
+                    end
+                    
+                    % By entropy condition for q1
+                    % - the combined abs weight for q1_ds(j)  satisfies 
+                    %   df/q1_ds(j) > max( scale(j), onramp_weight(j) )* df/q1_ds(j+1)
+                    % - q_weight_explicit = q_weight_combined - q_weight_implicit
+                    % Get the implicit weight
+                    q_weight_f = self.f(self.dv_index.(usFwyStr).downstream(1,1):...
+                                        self.dv_index.(usFwyStr).downstream(2,1));
+                    if ~isempty(self.q_implicit_weight)
+                        q_weight_implicit = q_weight_f + self.q_implicit_weight;
+                    else
+                        q_weight_implicit = q_weight_f;
+                    end
+                    
+                    % construct q_weight_combined
+                    num_steps = length(self.net.network_hwy.(usFwyStr).T_ds);
+                    q_weight_combined = zeros(num_steps,1);
+                    onramp_weight = self.f(self.dv_index.(onRampStr).downstream(1,1):...
+                                        self.dv_index.(onRampStr).downstream(2,1));
+                    % abs weight of fwy must be higher than onramp
+                    q_weight_combined(num_steps) = onramp_weight(num_steps) - 0.1;
+                    for j = num_steps-1: -1 : 1
+                        q_weight_combined(j) = min( self.q_scale(j)*q_weight_combined(j+1),...
+                                                    onramp_weight(j)) - 0.1;
+                        
+                    end
+                    
+                    q_weight_explicit = q_weight_combined - q_weight_implicit;
+                    self.f(self.dv_index.(usFwyStr).downstream(1,1):...
+                               self.dv_index.(usFwyStr).downstream(2,1)) =...
+                               q_weight_explicit;
+                    disp('Status: Entropy conditions applied for upstream freeway.')
+                    
+                    % entropy condition for downstream freeway q3_ds
+                    % abs weight only need to be monotonically decreasing
+                    % to guarantee admissible solutions.
+                    T_grid = self.net.network_hwy.(dsFwyStr).T_ds;
+                    num_steps = length(T_grid);
+                    tmp_f =  (-(num_steps:-1:1)*0.1 - 0.9)'.*T_grid;
+            
+                    self.f(self.dv_index.(dsFwyStr).downstream(1,1):...
+                               self.dv_index.(dsFwyStr).downstream(2,1)) =...
+                               self.f(self.dv_index.(dsFwyStr).downstream(1,1):...
+                               self.dv_index.(dsFwyStr).downstream(2,1)) +...
+                               tmp_f;
+                    
+                end
+                
+            end
+            
+        end
+        
+        
+        %===============================================================
+        function maxUpflow(self, links)
+            % Maximum upstream flow for one link
+            
+            if isempty(self.f)
+                % if not defiend by any function yet
+                self.f = zeros(self.dv_index_max,1);
+            end
+            
+            f_upflow = zeros(self.dv_index_max,1);
+            
+            for link = links'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                T_grid = self.net.network_hwy.(linkStr).T_us;
+            
+                num_steps = length(T_grid);
+                f_upflow(self.dv_index.(linkStr).upstream(1,1):...
+                         self.dv_index.(linkStr).upstream(2,1)) = -(num_steps:-1:1)'.*T_grid;
+            end
+            
+            self.f = self.f + f_upflow;
+
+        end
+        
+        
+        %===============================================================
+        function maxDownflow(self, links, weight)
+            % Maximize downstream flow for one link
+            % This is to prevent the congestion in the main exit.
+            % weight: a very small weight since this is just to deal with the
+            %         is not the main objective
+            
+            if isempty(self.f)
+                % if not defiend by any function yet
+                self.f = zeros(self.dv_index_max,1);
+            end
+            
+            f_downflow = zeros(self.dv_index_max,1);
+            
+            for link = links'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                T_grid = self.net.network_hwy.(linkStr).T_ds;
+            
+                num_steps = length(T_grid);
+                f_downflow(self.dv_index.(linkStr).downstream(1,1):...
+                         self.dv_index.(linkStr).downstream(2,1)) = -(num_steps:-1:1)'.*T_grid*weight;
+            end
+            
+            self.f = self.f + f_downflow;
+ 
+        end
+        
+        
+        %===============================================================
         function maxError(self,juncs)
             % Maximize the error caused by not following the rules
             
@@ -903,104 +1127,30 @@ classdef optProgram < handle
  
         end
         
-
         %===============================================================
-        function penalizeCongestion(self)
-            % Penalize the congestion for soft queue limit
-            % Here for simplicity, try to use min \sum s, where s is the slack
-            % variable  
-            
-            if isempty(self.q_weight)
-                return
-            end
+        function minDownflow(self, links)
+            % Minimize downstream flow for one link
             
             if isempty(self.f)
-                self.f = zeros(self.dv_index_max, 1);
+                % if not defiend by any function yet
+                self.f = zeros(self.dv_index_max,1);
             end
             
-            f_penalty = zeros(self.dv_index_max, 1);
+            f_downflow = zeros(self.dv_index_max,1);
             
-            % \sum_over_links \sum_over_steps s
-            for link = self.net.link_labels'
+            for link = links'
                 
-                linkStr = sprintf('link_%d',link);
+                linkStr = sprintf('link_%d', link);
                 
-                if isfield(self.soft_queue_limit, linkStr)
-                    
-                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
-                              self.dv_index.(linkStr).queue_s(2)) = 1;
-                    
-                    self.f = self.f + f_penalty;      
-                end
-                
+                T_grid = self.net.network_hwy.(linkStr).T_ds;
+            
+                num_steps = length(T_grid);
+                f_downflow(self.dv_index.(linkStr).downstream(1,1):...
+                         self.dv_index.(linkStr).downstream(2,1)) = -(num_steps:-1:1)'.*T_grid;
             end
             
-            
-            
-            
-        end
-        
-        
-        %===============================================================
-        function applyEntropy(self)
-            % checks and applies entropy condition to the objective
-            % REMARK: it only supports onramp in this version
-            
-            for junc = self.net.junc_labels'
-                
-                juncStr = sprintf('junc_%d',junc);
-                
-                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
-                    error('applyEntropy function only supports onrampjunc type in current version.')
-                else
-                    % find out the upstream freeway id
-                    inlinks = self.net.network_junc.(juncStr).inlabel;
-                    linkStr = sprintf('link_%d',inlinks(1));
-                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                        usFwyStr = linkStr;
-                    else
-                        usFwyStr = sprintf('link_%d', inlinks(2));
-                    end
-                    
-                    if isempty(self.f)
-                        error('Need to construct the objective function before applying entropy conditions.')
-                    end
-                    
-                    % By entropy condition, the absolute weights for q(i) need to be
-                    % monotonically decreasing over i. (Monotonically increasing since negative)
-                    % Combine self.f and slack variable (inexplicit weights)
-                    q_weight_f = self.f(self.dv_index.(usFwyStr).downstream(1,1):...
-                                        self.dv_index.(usFwyStr).downstream(2,1));
-                    if ~isempty(self.q_weight)
-                        q_weight_inexplicit = q_weight_f + self.q_weight;
-                    else
-                        q_weight_inexplicit = q_weight_f;
-                    end
-                    
-                    % all weights are negativ
-                    % check if monotonically increasing
-                    if all(diff(q_weight_inexplicit)>0) 
-                        disp('Status: Entropy check passed.')
-                    else
-                        % construct a desired combined entropy objective
-                        T_grid = self.net.network_hwy.(usFwyStr).T_ds;
-                        num_steps = length(T_grid);
-                        q_weight_combined = -(num_steps:-1:1)'.*T_grid;
-                        
-                        % the explicit weight that need to be set to
-                        % counter affect the penalty of the queue
-                        q_weight_explicit = q_weight_combined - q_weight_inexplicit;
-                       
-                        self.f(self.dv_index.(usFwyStr).downstream(1,1):...
-                               self.dv_index.(usFwyStr).downstream(2,1)) =...
-                               q_weight_explicit;
-                        disp('Status: Entropy conditions applied.')
-                    end
-                    
-                end
-                
-            end
-            
+            self.f = self.f - f_downflow;
+ 
         end
         
         
