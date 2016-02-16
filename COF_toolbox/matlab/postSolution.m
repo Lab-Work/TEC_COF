@@ -801,10 +801,20 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. In this case, the
-                            % affected domain of the discretization error
-                            % is small. we treat this as entropic
-                            continue
+                            % the entropic solution. Hence double check the
+                            % center point.
+                            t_C = (t_start+t_end)/2;
+                            d_M_C = self.entropicSolutionAtJunc( t_C, junc);
+                            
+                            if abs( q_s1(i)*T_grid(i)/2 - d_M_C(1) ) > entropyTol ||...
+                                    abs( q_s2(i)*T_grid(i)/2 - d_M_C(2) ) > entropyTol
+                                TF = false;
+                                steps.(juncStr) = i;
+                                break
+                            else
+                                % entropy solutution
+                                continue
+                            end
                         end
                     end     % end each step
                     
@@ -858,10 +868,20 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. In this case, the
-                            % affected domain of the discretization error
-                            % is small. we treat this as entropic
-                            continue
+                            % the entropic solution. 
+                            
+                            t_C = (t_start+t_end)/2;
+                            d_M_C = self.entropicSolutionAtJunc( t_C, junc);
+                            
+                            if abs( q_r1(i)*T_grid(i)/2 - d_M_C(1) ) > entropyTol ||...
+                                    abs( q_r2(i)*T_grid(i)/2 - d_M_C(2) ) > entropyTol
+                                TF = false;
+                                steps.(juncStr) = i;
+                                break
+                            else
+                                % entropy solutution
+                                continue
+                            end
                         end
                     end     % end each step
                     
@@ -2756,7 +2776,32 @@ classdef postSolution < handle
         
         
         
-        
+        %===============================================================
+        % This function computes the difference between the approaximated
+        % piece-wise constant solution with the true solution
+        % input:
+        %       true_sol: struct, .T_cum, .q; the true solution
+        %       approx_sol: struct, .T_cum, .q: the true solution
+        % output:
+        %       abs_e: the absolute error between two solutions
+        function abs_e = getAbsError(~, true_sol, approx_sol)
+            
+            % get combined time grid
+            T_grid =[0; unique([true_sol.T_cum; approx_sol.T_cum])];
+            
+            % compute the abs difference
+            abs_e = 0;
+            for pt = 2:length(T_grid)
+                
+                true_flow = true_sol.q( find( true_sol.T_cum>= T_grid(pt),1 ) );
+                approx_flow = approx_sol.q( find( approx_sol.T_cum>= T_grid(pt),1 ) );
+                abs_e = abs_e + abs( true_flow - approx_flow )*...
+                                        (T_grid(pt) - T_grid(pt-1) );
+                
+            end
+            
+            
+        end
         
         
         

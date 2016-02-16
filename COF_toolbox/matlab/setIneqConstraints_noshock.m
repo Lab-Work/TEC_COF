@@ -481,7 +481,7 @@ classdef setIneqConstraints_noshock
             end
             
             n = sum(self.T_us_cum <= t);  % in step n interval [ , )
-            if t == self.end_time     % the final time point
+            if abs(t - self.end_time) <= 1.0e-6     % the final time point
                 n = n-1;    % in the last step interval
             end
             
@@ -514,7 +514,7 @@ classdef setIneqConstraints_noshock
             end
             
             n = sum(self.T_ds_cum <= t);  % in step n interval [ , )
-            if t == self.end_time     % the final time point
+            if abs(t - self.end_time) <=  1.0e-6    % the final time point
                 n = n-1;    % in the last step interval
             end
             

@@ -1025,7 +1025,7 @@ classdef optProgram < handle
                     self.f(self.dv_index.(usFwyStr).downstream(1,1):...
                                self.dv_index.(usFwyStr).downstream(2,1)) =...
                                q_weight_explicit;
-                    disp('Status: Entropy conditions applied for upstream freeway.')
+                    fprintf('\nStatus: Entropy conditions applied for upstream freeway.')
                     
                     % entropy condition for downstream freeway q3_ds
                     % abs weight only need to be monotonically decreasing

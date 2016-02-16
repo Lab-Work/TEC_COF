@@ -102,7 +102,8 @@ q2_us_data = net.network_hwy.link_2.para_qmax*[1, 0, 1, 1, 1]';
 % q_tmp(q_tmp <= 0.5) = 0.5;
 % q_tmp(q_tmp >= 0.9) = 0.9;
 % q3_ds_data = q_tmp;
-q3_ds_data = net.network_hwy.link_3.para_qmax*[1,1,1,1,1]';
+% q3_ds_data = net.network_hwy.link_3.para_qmax*[1,1,1,1,1]';
+q3_ds_data = [];
 
 %===============================================================
 % Set all parameters intended for control as empty or disabled
@@ -128,9 +129,9 @@ while getEntropy == false && loopCounter <=50
     %===============================================================                         
     % update boundary conditions along with the new grid
     % setBoundaryCon(obj, link, q_in, q_out, T_in, T_out)
-    net.setBoundaryCon(1, q1_us_data, [], T_init_grid, T_junc);
-    net.setBoundaryCon(2, q2_us_data, [], T_init_grid, T_junc);
-    net.setBoundaryCon(3, [], q3_ds_data, T_junc, T_init_grid);
+    net.setBoundaryConForLink(1, q1_us_data, [], T_init_grid, T_junc);
+    net.setBoundaryConForLink(2, q2_us_data, [], T_init_grid, T_junc);
+    net.setBoundaryConForLink(3, [], q3_ds_data, T_junc, T_init_grid);
     
     %===============================================================
     % define and solve optimization program
