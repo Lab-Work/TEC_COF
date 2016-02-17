@@ -7,7 +7,8 @@ classdef optProgram < handle
     % 2. Calls setIneqConstraints_noshock and setEqConstraints to set constraints
     % 3. Several function for applying the entropy condition and constructing objective functions.
     
-    properties
+    properties (Access = public)
+        
         start_time; % start time of the CP horizon; always 0
         
         now_time;   % current clock time in AIMSUN simulation
@@ -59,7 +60,8 @@ classdef optProgram < handle
     end
     
     
-    methods
+    methods (Access = public)
+        
         %===============================================================
         function self = optProgram(~)
             % initializes the convex program and allocates memory 
@@ -186,7 +188,7 @@ classdef optProgram < handle
                 end
                 
                 % set inequality constraints
-                Ineq = setIneqConstraints_noshock(...
+                Ineq = setIneqConstraints(...
                     para,...
                     self.start_time, self.now_time ,self.end_time,...
                     Boundary_con, Initial_con, Traj_con, Dens_con,...
@@ -564,16 +566,16 @@ classdef optProgram < handle
         
         
         %===============================================================
-        function addEntropy(self, junction)
-            % Add entropy condition to a junction for forward simulation.
-            % It assumes only constraints at the grid point.
-            % Intuition:
-            % min sum  -w(i)T(i)*(alpha*(q1(i)+q2(i)) - beta*|q2(i)-R*q1(i)|))...
-            % need w(i) > w(i+1) while alpha and beta satisfying conditions
+        function applyAdmissibleCon(self, junction)
+            % Apply admissible condition to a junction for forward simulation and control.
+            % It supports:
+            %   - forward simulation for connection, merge, and diverge
+            %   - traffic control for onrampjunc
+            % It does NOT support traffic control for offrampjunc yet.
+            % It does NOT support a network with more than one junctions
             % input:
-            %       junction: nx1 vector, the junctions that we want to add
-            %           entropic condition; NOTE: for now, the theory only
-            %           support one junction
+            %       junction: nx1 vector, the list of junction ids that
+            %       need to apply admissible conditions. 
             
             if strcmp(junction, 'all')
                 junction = self.net.junc_labels;
@@ -592,7 +594,7 @@ classdef optProgram < handle
                     self.f = zeros(self.dv_index_max,1);
                 end
                 
-                % if connection
+                % if an unsignalized connection junction
                 if strcmp(self.net.network_junc.(juncStr).type_junc, 'connection')
                                         
                     linkStr = sprintf('link_%d', self.net.network_junc.(juncStr).inlabel); 
@@ -605,66 +607,11 @@ classdef optProgram < handle
                         
                     self.f = self.f + f_junc;
                     
-                % if it is an onrampjunc, need to guarantee entropic
-                % solution from upstream freeway to downstream freeway
-                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
-                    
-                    inlinks = self.net.network_junc.(juncStr).inlabel;
-                    
-                    % find the upstream freeway
-                    linkStr = sprintf('link_%d',inlinks(1));
-                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                        upFreewayStr = linkStr;
-                    else
-                        linkStr = sprintf('link_%d',inlinks(2));
-                        if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                            upFreewayStr = linkStr;
-                        else
-                            error('ERROR: Junction %d is defined as an onramp junction without an onramp.\n',...
-                                junc)
-                        end
-                    end
-                    
-                    % put a linear weight
-                    f_junc = zeros(self.dv_index_max, 1);
-                    f_junc(self.dv_index.(upFreewayStr).downstream(1,1):...
-                            self.dv_index.(upFreewayStr).downstream(2,1),1) =...
-                            -(num_steps:-1:1)'.*self.net.network_junc.(juncStr).T;
-                        
-                    self.f = self.f + f_junc;
-                    
-                
-                % if it is an offrampjunc, need to guarantee entropic
-                % solution from upstream freeway to downstream freeway
-                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'offrampjunc')
-                    
-                    outlinks = self.net.network_junc.(juncStr).outlabel;
-                    
-                    % find the upstream freeway
-                    linkStr = sprintf('link_%d',outlinks(1));
-                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                        downFreewayStr = linkStr;
-                    else
-                        linkStr = sprintf('link_%d',outlinks(2));
-                        if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                            downFreewayStr = linkStr;
-                        else
-                            error('ERROR: Junction %d is defined as an offramp junction without an offramp.\n',...
-                                junc)
-                        end
-                    end
-                    
-                    % put a linear weight
-                    f_junc = zeros(self.dv_index_max, 1);
-                    f_junc(self.dv_index.(downFreewayStr).downstream(1,1):...
-                            self.dv_index.(downFreewayStr).downstream(2,1),1) =...
-                            -(num_steps:-1:1)'.*self.net.network_junc.(juncStr).T;
-                        
-                    self.f = self.f + f_junc;
-                        
-                    
                 % if merge/diverge For each Merge or diverge junction, 
                 % we add varaibel e = |q2-Rq1| for each step
+                % Intuition:
+                % min sum  -w(i)T(i)*(alpha*(q1(i)+q2(i)) - beta*|q2(i)-R*q1(i)|))...
+                % need w(i) > w(i+1) while alpha and beta satisfying conditions
                 elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'merge') ||...
                        strcmp(self.net.network_junc.(juncStr).type_junc, 'diverge') 
                     
@@ -692,11 +639,11 @@ classdef optProgram < handle
                     if R_priority <= 1
                         % Given beta = 1
                         alpha = 2 + R_priority;
-                        E = (alpha + 1)/(1+R_priority) + 0.1;
+                        E = (alpha + 1)/(1+R_priority) + 0.01;
                     else
                         % given beta = 1
                         alpha = 1 + 2*R_priority;
-                        E = (alpha + R_priority)/(1+R_priority) + 0.1;
+                        E = (alpha + R_priority)/(1+R_priority) + 0.01;
                     end
 
                     % generate the weight vector
@@ -733,250 +680,13 @@ classdef optProgram < handle
                         weight.*T_junc;...
                         zeros( self.dv_index_max - self.dv_index.(juncStr)(2) ,1)];
                     
-                end     
-            
-            end
-        end
-         
-
-        %===============================================================
-        function penalizeCongestion(self)
-            % Penalize the congestion for soft queue limit
-            % Here for simplicity, try to use min \sum s, where s is the slack
-            % variable  
-            
-            if isempty(self.q_implicit_weight)
-                return
-            end
-            
-            if isempty(self.f)
-                self.f = zeros(self.dv_index_max, 1);
-            end
-            
-            f_penalty = zeros(self.dv_index_max, 1);
-            
-            % \sum_over_links \sum_over_steps s
-            for link = self.net.link_labels'
-                
-                linkStr = sprintf('link_%d',link);
-                
-                if isfield(self.soft_queue_limit, linkStr)
                     
-                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
-                              self.dv_index.(linkStr).queue_s(2)) = 1;
+                % if it is an onrampjunc
+                % Need to guarantee the admissible solution from upstream
+                % freeway to downstream freeway with potentially penalty on
+                % the downstream freeway
+                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
                     
-                    self.f = self.f + f_penalty;      
-                end
-                
-            end
-            
-            
-        end
-        
-        
-        %===============================================================
-        function applyEntropy(self)
-            % checks and applies entropy condition to the objective
-            % REMARK: it only supports onramp in this version
-            
-            for junc = self.net.junc_labels'
-                
-                juncStr = sprintf('junc_%d',junc);
-                
-                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
-                    error('applyEntropy function only supports onrampjunc type in current version.')
-                else
-                    % find out the upstream freeway id
-                    inlinks = self.net.network_junc.(juncStr).inlabel;
-                    linkStr = sprintf('link_%d',inlinks(1));
-                    if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                        usFwyStr = linkStr;
-                    else
-                        usFwyStr = sprintf('link_%d', inlinks(2));
-                    end
-                    
-                    if isempty(self.f)
-                        error('Need to construct the objective function before applying entropy conditions.')
-                    end
-                    
-                    % By entropy condition, the absolute weights for q(i) need to be
-                    % monotonically decreasing over i. (Monotonically increasing since negative)
-                    % Combine self.f and slack variable (implicit weights)
-                    q_weight_f = self.f(self.dv_index.(usFwyStr).downstream(1,1):...
-                                        self.dv_index.(usFwyStr).downstream(2,1));
-                    if ~isempty(self.q_implicit_weight)
-                        q_weight_implicit = q_weight_f + self.q_implicit_weight;
-                    else
-                        q_weight_implicit = q_weight_f;
-                    end
-                    
-                    % all weights are negativ
-                    % check if monotonically increasing
-                    if all(diff(q_weight_implicit)>0) 
-                        disp('Status: Entropy check passed.')
-                    else
-                        % construct a desired combined entropy objective
-                        T_grid = self.net.network_hwy.(usFwyStr).T_ds;
-                        num_steps = length(T_grid);
-                        q_weight_combined = -(num_steps:-1:1)'.*T_grid;
-                        
-                        % the explicit weight that need to be set to
-                        % counter affect the penalty of the queue
-                        q_weight_explicit = q_weight_combined - q_weight_implicit;
-                       
-                        self.f(self.dv_index.(usFwyStr).downstream(1,1):...
-                               self.dv_index.(usFwyStr).downstream(2,1)) =...
-                               q_weight_explicit;
-                        disp('Status: Entropy conditions applied.')
-                    end
-                    
-                end
-                
-            end
-            
-        end
-        
-        
-        %===============================================================
-        function maxOnrampFlow(self, juncs)
-            % Maxmize the onramp flow
-            % NOTE: set the entropy condition first, then set the maximize
-            % onramp flow objective. the weight for the onramp flow must be
-            % smaller than the entropy condition weight
-            % input:
-            %       juncs: a column vector of onrampjunc IDs,or 'all'
-            
-            if isempty(self.f)
-               error('The entropy condition for the onrampjunc must be set first')
-            end
-          
-            f_downflow = zeros(self.dv_index_max,1);
-            
-            if strcmp(juncs, 'all')
-                juncs = self.net.junc_labels;
-            end
-            
-            for junc = juncs'
-                juncStr = sprintf('junc_%d', junc);
-                
-                % skip links that are not onramps
-                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
-                    continue
-                end
-                
-                % find out the upstream freeway link id and the onramp id
-                inlinks = self.net.network_junc.(juncStr).inlabel;
-                linkStr = sprintf('link_%d',inlinks(1));
-                if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'freeway')
-                    usFwyStr = linkStr;
-                    onRampStr = sprintf('link_%d', inlinks(2));
-                else
-                    onRampStr = linkStr;
-                    usFwyStr = sprintf('link_%d', inlinks(2));
-                end
-                
-                % Find the maximal weight used for the upstream freeway
-                % Onramp flow should not compete with the upstream freeway
-                % or cause congestion in the downstream
-                % Absolute weight < all absolute weight upstream
-                min_abs_us_weight = min(abs(self.f(self.dv_index.(usFwyStr).downstream(1):...
-                                                   self.dv_index.(usFwyStr).downstream(2))));
-                
-                T_grid = self.net.network_hwy.(onRampStr).T_ds;
-                num_steps = length(T_grid);
-                tmp_f =  -(num_steps:-1:1)'.*T_grid;    
-                % normalize f_downflow to [-min_abs_us_weight, 0)
-                tmp_f = min_abs_us_weight*tmp_f./abs(tmp_f(1));  
-                
-                f_downflow(self.dv_index.(onRampStr).downstream(1,1):...
-                         self.dv_index.(onRampStr).downstream(2,1)) = tmp_f;
-                           
-            end
-            
-            self.f = self.f + f_downflow;
- 
-        end
-        
-        
-        %===============================================================
-        function penalizeCongestion_v2(self, weight)
-            % Penalize the congestion for soft queue limit in obj f v2
-            % min \sum{s_k}
-            % input:
-            %       weight: the weight for \sum(sk)
-            if isempty(self.q_implicit_weight)
-                return
-            end
-            
-            if isempty(self.f)
-                self.f = zeros(self.dv_index_max, 1);
-            end
-            
-            f_penalty = zeros(self.dv_index_max, 1);
-            
-            % \sum_over_links \sum_over_steps s
-            for link = self.net.link_labels'
-                
-                linkStr = sprintf('link_%d',link);
-                
-                if isfield(self.soft_queue_limit, linkStr)
-                    
-                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
-                              self.dv_index.(linkStr).queue_s(2)) = weight;
-                    
-                    % update the implicit weight
-                    self.q_implicit_weight = weight*self.q_implicit_weight;
-                    
-                    self.f = self.f + f_penalty;      
-                end
-                
-            end
-            
-            
-            
-            
-        end
-        
-        %===============================================================
-        function maxOnrampFlow_v2(self, link, weight)
-            % Maxmize the onramp flow but using v2 objective function
-            % NOTE: the onramp flow abs weight should be decreasing
-            % input:
-            %       link: link_id of the onramp
-            %       weight: the smallest weight for q_onramp(j_max)*T_jmax
-            
-            if isempty(self.f)
-                self.f = zeros(self.dv_index_max, 1);
-            end
-            
-            f_downflow = zeros(self.dv_index_max,1);
-            
-            onRampStr = sprintf('link_%d', link);
-            
-            T_grid = self.net.network_hwy.(onRampStr).T_ds;
-            num_steps = length(T_grid);
-            tmp_f =  (-(num_steps:-1:1)*0.1 - 0.9)'.*T_grid*weight;
-            
-            f_downflow(self.dv_index.(onRampStr).downstream(1,1):...
-                self.dv_index.(onRampStr).downstream(2,1)) = tmp_f;
-            
-            self.f = self.f + f_downflow;
- 
-        end
-        
-        
-        %===============================================================
-        function applyEntropy_v2(self)
-            % checks and applies entropy condition to the objective f v2 in the onramp metering control example
-            % REMARK: it only supports the onramp metering control example
-            
-            for junc = self.net.junc_labels'
-                
-                juncStr = sprintf('junc_%d',junc);
-                
-                if ~strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
-                    error('applyEntropy function only supports onrampjunc type in current version.')
-                else
                     % find out the upstream freeway id
                     inlinks = self.net.network_junc.(juncStr).inlabel;
                     linkStr = sprintf('link_%d',inlinks(1));
@@ -1040,10 +750,88 @@ classdef optProgram < handle
                                self.dv_index.(dsFwyStr).downstream(2,1)) +...
                                tmp_f;
                     
+                
+                % if it is an offrampjunc
+                % This version does Not support off-ramp actuators yet. 
+                elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'offrampjunc')
+                    
+                    error([sprintf('Error: Current toolbox release does NOT support offrampjunc type: Junction %d!\n', junc)...
+                           sprintf('To support offramp control, please:\n')...
+                           sprintf('    - define an off-ramp actuator;\n')...
+                           sprintf('    - derive the admissible condition for offrampjunc;\n')...
+                           sprintf('    - modify the applyAdmissibleCon() function in optProgram class.\n')])
+
+                end     
+            
+            end
+        end
+         
+        
+        %===============================================================
+        function penalizeCongestion(self, weight)
+            % Penalize the congestion cost for soft queue limit in obj f
+            % min \sum{s_k}
+            % input:
+            %       weight: the weight for \sum(sk)
+            if isempty(self.q_implicit_weight)
+                return
+            end
+            
+            if isempty(self.f)
+                self.f = zeros(self.dv_index_max, 1);
+            end
+            
+            f_penalty = zeros(self.dv_index_max, 1);
+            
+            % \sum_over_links \sum_over_steps s
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d',link);
+                
+                if isfield(self.soft_queue_limit, linkStr)
+                    
+                    f_penalty(self.dv_index.(linkStr).queue_s(1):...
+                              self.dv_index.(linkStr).queue_s(2)) = weight;
+                    
+                    % update the implicit weight
+                    self.q_implicit_weight = weight*self.q_implicit_weight;
+                    
+                    self.f = self.f + f_penalty;      
                 end
                 
             end
             
+            
+            
+            
+        end
+        
+        
+        %===============================================================
+        function maxOnrampFlow(self, link, weight)
+            % Maxmize the onramp flow but using objective function
+            % NOTE: the onramp flow abs weight should be decreasing
+            % input:
+            %       link: link_id of the onramp
+            %       weight: the smallest weight for q_onramp(j_max)*T_jmax
+            
+            if isempty(self.f)
+                self.f = zeros(self.dv_index_max, 1);
+            end
+            
+            f_downflow = zeros(self.dv_index_max,1);
+            
+            onRampStr = sprintf('link_%d', link);
+            
+            T_grid = self.net.network_hwy.(onRampStr).T_ds;
+            num_steps = length(T_grid);
+            tmp_f =  (-(num_steps:-1:1)*0.1 - 0.9)'.*T_grid*weight;
+            
+            f_downflow(self.dv_index.(onRampStr).downstream(1,1):...
+                self.dv_index.(onRampStr).downstream(2,1)) = tmp_f;
+            
+            self.f = self.f + f_downflow;
+ 
         end
         
         
@@ -1154,6 +942,10 @@ classdef optProgram < handle
         end
         
         
+    end
+    
+    methods (Access = private)
+       
         %===============================================================
         function [M] = quad_matrix(~, n)
             % This function generate quadratic matrix at a given dimension
@@ -1189,25 +981,6 @@ classdef optProgram < handle
         end
         
         
-        %===============================================================
-        function dissectDvInfo(self, col)
-            % This function separates the column vector (x, lb, ub, f) for better interpretation
-            % input:
-            %       col: the column vector to be dissected and investigated
-            % TODO: to be finished.
-            
-            if length(col) ~= self.dv_index_max
-                error('col must have the same length as the decision variable.')
-            end
-            
-            for linkStr = fieldnames(CP.dv_index)'
-                
-                disp(linkStr);
-  
-            end
-            
-        
-        end
     end
     
 end

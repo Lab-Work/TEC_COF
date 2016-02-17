@@ -10,7 +10,7 @@ classdef initNetwork < handle
     % ---- initial and boundary conditions
     % ---- other auxiliary properties
     
-    properties
+    properties (Access = public)
         
         network_junc;   % struct, .(juncStr) contains junction info
         network_hwy;    % struct, .(linkStr), link info: .IC, .X_grid, .X_grid_cum, .para_~
@@ -22,7 +22,7 @@ classdef initNetwork < handle
         
     end
     
-    methods
+    methods (Access = public)
         %===============================================================
         function self = initNetwork(~)
             % Construct an empty net object
@@ -36,6 +36,7 @@ classdef initNetwork < handle
             self.num_juncs = 0;
             
         end
+        
         
         %===============================================================
         function addJunc(self, junc, inlabel, outlabel, type_junc, ratio, T)
@@ -69,6 +70,7 @@ classdef initNetwork < handle
             self.junc_labels = [self.junc_labels; junc];
             self.num_juncs = self.num_juncs + 1;
         end
+        
         
         %===============================================================
         function addLink(self, link, para, num_lanes, lengthKM, linkType)
@@ -108,6 +110,7 @@ classdef initNetwork < handle
             
         end
         
+        
         %===============================================================
         function setInitialConForLink(self, link, rho_ini)
             % Set initial condition of each link
@@ -137,6 +140,7 @@ classdef initNetwork < handle
             self.network_hwy.(linkStr).IC = self.columnize(rho_ini.IC);
 
         end
+        
         
         %===============================================================
         function setInitialCon(self, init_condition)
@@ -200,8 +204,8 @@ classdef initNetwork < handle
             
             
         end
-        
 
+        
         %===============================================================
         function setBoundaryConForLink(self, link, q_in, q_out, T_in, T_out)
             % Set boundary condition of each link
@@ -337,7 +341,11 @@ classdef initNetwork < handle
 
         end
         
-        
+     
+    end
+    
+    methods (Access = private)
+       
         %===============================================================
         function [co] = columnize(~, v)
             % columnize the array v
@@ -349,7 +357,7 @@ classdef initNetwork < handle
             end
         end
         
-     
+        
     end
     
 end

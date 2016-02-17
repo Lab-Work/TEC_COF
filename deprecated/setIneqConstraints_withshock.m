@@ -51,7 +51,7 @@
 %       
 
 
-classdef setIneqConstraints_noshock
+classdef setIneqConstraints_withshock
     
     properties
         
@@ -200,7 +200,7 @@ classdef setIneqConstraints_noshock
         %           Set value to NaN to disable
         %       error: struct, must have a field e_default
         %              other fields corresponding to each property
-        function self = setIneqConstraints_noshock(...
+        function self = setIneqConstraints_withshock(...
                 para,...
                 start_time, now_time, end_time,...
                 Boundary_con,...
@@ -267,14 +267,6 @@ classdef setIneqConstraints_noshock
                                     self.dv_max+self.num_initial_con];
             self.dv_max = self.dv_max + self.num_initial_con;
             
-            % Boundary condition
-            self.T_us = Boundary_con.T_us;
-            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
-            self.T_ds = Boundary_con.T_ds;
-            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
-            self.qin_meas = Boundary_con.BC_us;
-            self.qout_meas = Boundary_con.BC_ds;
-            
             if isfield(Traj_con, 'x_min_traj')
                 self.num_internal_con = length(Traj_con.x_min_traj);
                 % internal L
@@ -310,21 +302,11 @@ classdef setIneqConstraints_noshock
                     error('Current version does not support soft queue limit with internal or density condition.')
                 end
                 
-                % The time grid is the intersection point between vf from
-                % upstream boudnary condition with x_queue
-                dt = (self.ds_pos_m - soft_queue_limit)/self.v;
-                tmp_grid = self.T_us_cum + dt;
-                tmp_grid = tmp_grid( tmp_grid <= self.end_time);
-                
-                self.soft_queue_t = tmp_grid;
-                
-                % Evenly sampling in the time domain.
-%                 tmp_grid = self.now_time:30:self.end_time;
-%                 if tmp_grid(end)~= self.end_time
-%                     tmp_grid = [tmp_grid'; self.end_time];
-%                 end
-%                 self.soft_queue_t = tmp_grid';
-                
+                tmp_grid = self.now_time:30:self.end_time;
+                if tmp_grid(end)~= self.end_time
+                    tmp_grid = [tmp_grid'; self.end_time];
+                end
+                self.soft_queue_t = tmp_grid';
                 self.num_soft_queue_pt = length(tmp_grid);
                 self.soft_queue_x = ones(self.num_soft_queue_pt,1)*...
                     (self.ds_pos_m-soft_queue_limit);
@@ -341,6 +323,14 @@ classdef setIneqConstraints_noshock
             end            
             self.dv_var_max = self.dv_max;
             
+            
+            % Boundary condition
+            self.T_us = Boundary_con.T_us;
+            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
+            self.T_ds = Boundary_con.T_ds;
+            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
+            self.qin_meas = Boundary_con.BC_us;
+            self.qout_meas = Boundary_con.BC_ds;
             
             % find out the number of past steps and the number of predict
             % steps
@@ -481,7 +471,7 @@ classdef setIneqConstraints_noshock
             end
             
             n = sum(self.T_us_cum <= t);  % in step n interval [ , )
-            if abs(t - self.end_time) <= 1.0e-6     % the final time point
+            if t == self.end_time     % the final time point
                 n = n-1;    % in the last step interval
             end
             
@@ -514,7 +504,7 @@ classdef setIneqConstraints_noshock
             end
             
             n = sum(self.T_ds_cum <= t);  % in step n interval [ , )
-            if abs(t - self.end_time) <=  1.0e-6    % the final time point
+            if t == self.end_time     % the final time point
                 n = n-1;    % in the last step interval
             end
             
@@ -617,12 +607,6 @@ classdef setIneqConstraints_noshock
             
             array = zeros(1,self.size_row);  %Initialize the array
             
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
-            
             % characteristic domain
             if((self.T_us_cum(n) + (x - self.us_pos_m)/self.v <= t) && ...
                     (self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v >= t ) && (n<= self.num_us_con))
@@ -654,12 +638,6 @@ classdef setIneqConstraints_noshock
         %           the nth downstream boundary condition
         function [array] = m_ds_con(self,n,t,x)
             array = zeros(1,self.size_row);
-            
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
             
             % in characteristic domain
             if( (self.T_ds_cum(n) + (x - self.ds_pos_m)/self.w <= t) &&...
@@ -696,12 +674,6 @@ classdef setIneqConstraints_noshock
         %           the nth internal boundary condition
         function [array] = m_traj_con(self, m, t, x)
             array = zeros(1,self.size_row);
-            
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
             
             if( (x >= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
                 ( x >= self.x_max_traj(m) + self.v*(t-self.t_max_traj(m))) &&...
@@ -747,12 +719,6 @@ classdef setIneqConstraints_noshock
         function [array] = m_initial_con_ff(self,b,t,x)
             array = zeros(1,self.size_row);
             
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
-            
             % characteristic domain
             if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.v <= x) &&...
                     (x <=self.us_pos_m+ sum(self.X_grid(1:b)) + t*self.v) &&...
@@ -792,13 +758,6 @@ classdef setIneqConstraints_noshock
         %           the nth initial boundary condition
         function [array] = m_initial_con_cf(self,b,t,x)
             array = zeros(1,self.size_row);
-            
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
-            
             % characteristic domain
             if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
                     (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w) &&...
@@ -842,12 +801,6 @@ classdef setIneqConstraints_noshock
             
             array = zeros(1,self.size_row);
             
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
-            
             if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.v <= x) &&...
                  (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
                  (t>=self.t_dens(u)) && ( u <= self.num_density_con))
@@ -886,12 +839,6 @@ classdef setIneqConstraints_noshock
         function [array] = m_dens_con_cf(self,u,t,x)
             
             array = zeros(1,self.size_row);
-            
-            % make sure it is within the time space domain
-            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
-                array = [];
-                return
-            end
             
             if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
                  (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.w) &&...
@@ -957,12 +904,12 @@ classdef setIneqConstraints_noshock
                 % freeflow speed intersection at downstream point
                 % point (self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m) 
                 % where solution >= value condition 
-%                 array = self.m_us_con(n, self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m);
-%                 array2 = self.subtractArray(array, self.ds_con(self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m));
-%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_us_con(n, self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m);
+                array2 = self.subtractArray(array, self.ds_con(self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m));
+                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
                 % There is no need to pose the inequality for upstream
                 % points or initial time points
@@ -1052,15 +999,15 @@ classdef setIneqConstraints_noshock
                 end
                 
                 % intersection point at upstream (self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w,self.us_pos_m)
-%                 array = self.m_ds_con(n,self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m);
-%                 array2 = self.subtractArray(array, self.us_con(self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m));
-%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-%                     rows = rows+1;
-%                     
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_ds_con(n,self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m);
+                array2 = self.subtractArray(array, self.us_con(self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m));
+                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+                    rows = rows+1;
+                    
+                    list(rows,:) = array2;
+                end
                 
-                % There is no need to pose the inequality for downstream
+                % There is no need to pose the inequality for upstream
                 % points or initial time points
                 
                 % internal condition points
@@ -1149,22 +1096,22 @@ classdef setIneqConstraints_noshock
                 
                 % at upstream intersection points
                 % tau 1
-%                 array = self.m_initial_con_ff(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
-%                 array2 = self.subtractArray(array,self.us_con(self.start_time +...
-%                     (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
-%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_initial_con_ff(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
+                array2 = self.subtractArray(array,self.us_con(self.start_time +...
+                    (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
+                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
                 % tau 2
-%                 array = self.m_initial_con_cf(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
-%                 array2 = self.subtractArray(array,self.us_con(self.start_time +...
-%                     (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
-%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_initial_con_cf(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
+                array2 = self.subtractArray(array,self.us_con(self.start_time +...
+                    (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
+                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
                 
                 % at downstream points
@@ -1189,21 +1136,21 @@ classdef setIneqConstraints_noshock
                 end
                 
                 % intersection point at downstream
-%                 array = self.m_initial_con_ff(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
-%                 array2 = self.subtractArray(array,self.ds_con(self.start_time +...
-%                     (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
-%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_initial_con_ff(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
+                array2 = self.subtractArray(array,self.ds_con(self.start_time +...
+                    (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
+                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
-%                 array = self.m_initial_con_cf(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
-%                 array2 = self.subtractArray(array,self.ds_con(self.start_time +...
-%                     (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
-%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_initial_con_cf(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
+                array2 = self.subtractArray(array,self.ds_con(self.start_time +...
+                    (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
+                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
                 % for internal points
                 for p=1:self.num_internal_con
@@ -1652,21 +1599,21 @@ classdef setIneqConstraints_noshock
                 end
                 
                 % upstream intersection points
-%                 array = self.m_dens_con_ff(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
-%                 array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
-%                         (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
-%                 if(~isempty(array2))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
-%                 
-%                 array = self.m_dens_con_cf(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
-%                 array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
-%                     (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
-%                 if(~isempty(array2))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_dens_con_ff(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
+                array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
+                        (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
+                if(~isempty(array2))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
+                
+                array = self.m_dens_con_cf(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
+                array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
+                    (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
+                if(~isempty(array2))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
                 
                 % downstream points
@@ -1691,21 +1638,21 @@ classdef setIneqConstraints_noshock
                 end
                 
                 % downstream intersection points
-%                 array = self.m_dens_con_ff(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
-%                 array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
-%                     (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
-%                 if(~isempty(array2))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
-%                 
-%                 array = self.m_dens_con_cf(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
-%                 array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
-%                     (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
-%                 if(~isempty(array2))
-%                     rows = rows+1;
-%                     list(rows,:) = array2;
-%                 end
+                array = self.m_dens_con_ff(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
+                array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
+                    (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
+                if(~isempty(array2))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
+                
+                array = self.m_dens_con_cf(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
+                array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
+                    (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
+                if(~isempty(array2))
+                    rows = rows+1;
+                    list(rows,:) = array2;
+                end
                 
                 
                 % internal condition points
@@ -1942,8 +1889,8 @@ classdef setIneqConstraints_noshock
         % The corresponding variable x is constrained by
         % x - x_normal*e <= x <= x + x_normal*e, where x_normal = q_max, kc
         % output: 
-        %       the data constraints matrix
         %       list[:,1:end-1] * x >= list[:,end]
+        %       the data constraints matrix
         function [list2] = setDataMatrix(self)
                         
             %Use sparse matrix to speed up computation
@@ -2103,7 +2050,7 @@ classdef setIneqConstraints_noshock
         %   L <= Mi for all i
         %   inf*bi + L >= Mi for all i
         %   sum(1-bi) = 1 (one and only one bi = 0)
-        % output:
+        % output: 
         %       list[:,1:end-1] * x >= list[:,end]
         function [list3] = setInternalConstraints(self)
             
@@ -3099,9 +3046,6 @@ classdef setIneqConstraints_noshock
         
         %==========================================================================
         % Function to create soft constraints for queue limits
-        % REMARK: only for the merge example presented in paper. In
-        % different scenarios, use the theory to rederive the weights
-        % needed for the admissible solution.
         % For any point (x,t), define vehicle label L, and slack variable s
         % constraints: L <= M^{us(+initial_free), ds(+initial_cong) }; 
         %              L = M^us - s; s>=0; 
@@ -3110,28 +3054,16 @@ classdef setIneqConstraints_noshock
         % output: 
         %       list: the constraint matrix; 
         %       list[:,1:end-1] * x >= list[:,end]
-        %       weight: s = f(q3(j)) = f(q1(_+q2(j)), weight tracks the
-        %           implicit total weight added to q1(j) in the objective when
-        %           minimizing sum s(k). This is used for constructing the
-        %           objective function such that penalizing s wont stop
-        %           traffic from upstream freeway.
-        %       scale: Due to the introduction of queue limit point,
-        %           to get the entropy solution for q1(j), the objective must satisfy:
-        %           df/dq1(j-1) > T_(j-1)/t_(j) * df/dq1(j), 
-        %           where T_j= max_coe_q1(j), t_j = min_coe_q1(j)       
-        function [list, weight, scale] = setSoftQueueLimit(self)
+        %       weight: the weight for q1, this is used for constructing
+        %           the entropy condition
+        function [list, weight] = setSoftQueueLimit(self)
             
             % Each point introduces 5 inequalities
             list = zeros(self.num_soft_queue_pt*5, self.size_row);
             rows = 0;
-            
             % keep track of the weight of q1 which is in M^us
             list_us = zeros(self.num_soft_queue_pt, self.size_row);
             rows_us = 0;
-            
-            % keep tracks of the scale T_(j-1)/t_(j)
-            list_q1_scale = zeros(self.num_soft_queue_pt, self.size_row);
-            rows_q1_scale = 0;
                         
             % for each point
             for pt = 1:self.num_soft_queue_pt
@@ -3222,17 +3154,12 @@ classdef setIneqConstraints_noshock
                     rows = rows+1;
                     list(rows,:) = array;
                     
-                    % M_us - s - L >= 0
+                    % M_us - s - L >= & L - M_us + s >=0
                     array = M_us;
                     array(1, self.dv_link.queue_L(1)-1 + pt) = -1;
                     array(1, self.dv_link.queue_s(1)-1 + pt) = -1;
                     rows = rows+1;
                     list(rows,:) = array;
-                    % get the scale from this specific constraitns
-                    rows_q1_scale = rows_q1_scale+1;
-                    list_q1_scale(rows_q1_scale, :) = array;
-                    
-                    % L - M_us + s >=0
                     array = -array;
                     rows = rows+1;
                     list(rows,:) = array;
@@ -3250,10 +3177,8 @@ classdef setIneqConstraints_noshock
             % truncate matrix
             list = list(1:rows,:);
             list_us = list_us(1:rows_us,:);
-            list_q1_scale = list_q1_scale(1:rows_q1_scale, :);
             
-            % compute the implicit total weight on q1(j) when 
-            % minimizing sum s_k
+            % compute the sum of the weight
             if ~isempty(list_us)
                 weight = sum( list_us(:,...
                     self.dv_link.upstream(1):...
@@ -3262,31 +3187,6 @@ classdef setIneqConstraints_noshock
             else
                 weight = [];
             end
-            
-            % scale(j) = T_(j)/t_(j+1)
-            scale = zeros( length(self.T_us)-1 ,1);
-            if ~isempty(list_q1_scale)
-                
-                for j = 2: length(self.T_us)
-                    
-                    index = self.dv_link.upstream(1)-1 + j;
-                    % find the smallest non-zero value
-                    t_j = min( list_q1_scale( list_q1_scale(:,index)>0 ,index) );
-                    T_j_1 = self.T_us( j-1 );
-                    
-                    if ~isempty(t_j) && ~isempty(T_j_1)
-                        % if need this scale
-                        scale( index- self.dv_link.upstream(1) ) = T_j_1/t_j;
-                    else
-                        % if not additional constraints
-                        T_j = self.T_us( j );
-                        scale(index- self.dv_link.upstream(1) ) = T_j_1/T_j;
-                    end
-                end
-            else
-                scale = [];
-            end
-            
             
         end
     

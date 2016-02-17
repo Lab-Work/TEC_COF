@@ -1,19 +1,23 @@
-% This script analyzes the convergence and stability of the convex junction
-% solver in a merge example.
+%% Analaysis of the convergence of the solver
+% The analysis is conducted at a merge junction. Theoretically, as the
+% boundary grid at the internal boundary gets finer, the approximated
+% piecewise constant internal boundary flow solution converges to the exact
+% solution. This script evaluates the approximated solution with different
+% level of boundary grid resolution.
+% In addition, the admissible solution requries exponential increase of the
+% weights posed for each time step. Consequently, as the number of boundary
+% intervals goes too large, the weight posed for the boundary flow may grow
+% infinite which makes the solver unstable due to the numerical rounding.
+% Therefore this script evaluates how bad such explosion could be and if it
+% is practical to use the solver in a real traffic estimation problem.
 % Yanning Li, Feb 15, 2016.
 
-% In theory, as the intervals in the boundary grid go to zero, the
-% piecewise constant boudnary flow solution should be the same as the true
-% solutioin.
 
-
-tic
 clearvars -except dbg
 
-profile on
-%===============================================================
-%=================== Macro setting and Measures ================
-% A new grid at each iteration. Save all the info
+% profile on
+%% Experiment setup
+% Define a struct to save the result from each iteration.
 iter = struct;
 iter.num_intervals = []; % column, number of intervals in a fixed horizon
 iter.abs_error = [];     % column, absolute error of solution for each iter
@@ -22,30 +26,33 @@ iter.tt_time = [];       % total time for solving each iteration, including the 
 iter.solve_time = [];    % time needed for solving LP
 iter.max_weight = [];    % the maximum weight coefficient in f, check for stability.
 
-% time horizon
+% Set the time horizon.
 t_horizon_start = 0;
 t_horizon_end = 150;
 
-% Percent error of the full range
-% e.g. [q_meas-e_meas_flow*q_max q_meas+e_meas_flow*q_max]
-%      [rho_est-e_est*kc, rho_est+e_est*kc]
+% Define the error struct for the measurement.
+% e.g. $$[q_{meas}-e_{measflow} \times q_{max}, q_{meas}+e_{measflow}\times
+% q_{max}]$$
+%      $$[\rho_{est}-e_{est}\times \rho_c, \rho_{est| + e_{est}\times
+%      \rho_c]$$
 errors = struct;
 errors.e_default = 0.0;
 errors.e_his = 0.0; % historical data error
 errors.e_est = 0.0; % estimated initial condition error
 errors.e_meas_flow = 0.0;
 
-% set the resolution for solving the HJ PDE on each link
+% Set the resolution for visualizing the traffic states on each link using
+% the Berkeley single link HJ PDE solver.
 dx_res = 2; % meters
 dt_res = 2; % seconds
 
-% Define an example network: link 1 & 2 merge to link 3
-% length of each link
+% Define a merge network: link 1 & 2 merge to link 3, with the following
+% lengths in km.
 len_link1 = 1;    %km
 len_link2 = 1;
 len_link3 = 1;
 
-% default_para road parameters
+% Define default_para road parameters
 default_para = struct;
 default_para.beta_off = 0.2;
 default_para.vf = 65*1609/3600;  %65 miles/hr
@@ -59,30 +66,30 @@ default_para.km_pl = default_para.kc_pl*(default_para.w-default_para.vf)/default
 default_para.v_min = 0*1609/3600;
 default_para.v_max = 65*1609/3600;
 
+% Construct an initNetwork object.
 net = initNetwork;
 net.addLink(1, default_para, 1, len_link1, 'freeway');
 net.addLink(2, default_para, 1, len_link2, 'freeway');
 % 1.5 lanes simulate a limited capacity while still using the default_para
 net.addLink(3, default_para, 1.5, len_link3, 'freeway');   
  
-% function addJunc(self, junc, inlabel, outlabel, type_junc, ratio, T)
-% a temporary grid
+% Define a temporary grid for the internal boundary.
 sim_steps = 5;
 step_length = (t_horizon_end-t_horizon_start)/sim_steps;   % seconds
 T_init_grid = ones(sim_steps,1)*step_length;
 net.addJunc(1, [1, 2]', 3, 'merge', [1; 1], T_init_grid);
 
-% set initial conditoins
+% Set the initial conditoins randomly or staticly. 
 % Initial traffic density is initialized constants with even discretization
 % Normalized to rho_c
 % rho_tmp = randn(sim_steps, 1) + 0.5;
 % rho_tmp(rho_tmp <= 0.2) = 0.2;
 % rho_tmp(rho_tmp >= 1.5) = 1.5;
-
+%
 % rho_tmp = randn(sim_steps, 1) + 0.5;
 % rho_tmp(rho_tmp <= 0.2) = 0.2;
 % rho_tmp(rho_tmp >= 1.5) = 1.5;
-
+%
 % rho_tmp = randn(sim_steps, 1) + 0.5;
 % rho_tmp(rho_tmp <= 0.2) = 0.2;
 % rho_tmp(rho_tmp >= 1.5) = 1.5;
@@ -93,10 +100,9 @@ Ini.link_3.IC = net.network_hwy.link_3.para_kc*[1, 1, 1, 1, 1]';
 
 net.setInitialCon(Ini);
 
-% set the boundary condition
-% Boundary condition at the two entrances and the one exit
-% Normalized to q_max
-% generate a random upstream flow
+% Set the boundary conditions randomly or staticly.
+% Boundary condition at the two entrances and the one exit.
+% 
 % q_tmp = randn(sim_steps, 1) + 1;
 % q_tmp(q_tmp <= 0.5) = 0.5;
 % q_tmp(q_tmp >= 0.9) = 0.9;
@@ -120,13 +126,13 @@ q3_ds_data = net.network_hwy.link_3.para_qmax*[1, 0, 1, 0, 1]';
 hard_queue_limit = struct;
 soft_queue_limit = struct;
 
-%===============================================================
-%================== Compute the true solution ==================
-% configuration paramters
+
+%% Compute the true exact solution
+% Configuration paramters
 sim_steps = 5;
 step_length = (t_horizon_end-t_horizon_start)/sim_steps;   % seconds
 
-% number of vehicles that we would consider as entropic solution
+% Set the number of vehicles that we would consider as entropic solution
 entropyTolerance = 0.01;
 
 % This is the while loop for computing the true solution.
@@ -159,14 +165,12 @@ while getEntropy == false && loopCounter <= 50
     
     %==============================
     % Add objective functions
-    LP.addEntropy(1);
+    LP.applyAdmissibleCon('all');
     % LP.maxUpflow([1 2 4]);
     LP.maxDownflow(3, 1);
     % LP.maxError(1);
     %==============================    
-    toc
     
-    tic
     %solve program
     [x, fval, exitflag, output] = LP.solveProgram;
     
@@ -174,13 +178,10 @@ while getEntropy == false && loopCounter <= 50
     % Post process the data
     Mos = postSolution(x, net, LP.dv_index, LP.end_time, dx_res, dt_res,...
                       hard_queue_limit, soft_queue_limit);
-    % Mos.estimateState();
-    % Mos.plotJuncs('all', 'Forward simulation with NO shockwave points constraints')
     
     [getEntropy, steps] = Mos.checkEntropy(entropyTolerance);
     
     if getEntropy == false
-        hold on
         T_junc_all = Mos.updateTimeDiscretization(steps);
         % updated T_junc
         T_junc = T_junc_all.junc_1.T;
@@ -188,12 +189,11 @@ while getEntropy == false && loopCounter <= 50
 
 end
 
-% plot true solution
+% Plot the true exact solution
 Mos.estimateState();
-Mos.plotJuncs('all','true solution');
+Mos.plotJuncs('all','Exact solution');
 
-% aggregate and save the true solution
-% sol1_true.T_cum = [t1, t2,...]
+% Aggregate and save the true solution
 sol1_true = struct;
 sol2_true = struct;
 
@@ -215,8 +215,14 @@ sol2_true.q = tmp_group(:,3);
 
 
 
-%===============================================================
-%================== Run solver using different grid ============
+%% Compute the approximated solution at differnet time grid
+% Plot the approximated solution for a few grids. If the _dx_res_ and
+% _dt_res_ are small, it will take a long time and use a lot of memory to
+% render the image. Therefore, we suggest run the script first and then
+% uncomment _plot_cases_ line, and substitute 'num_steps = 1:150' to
+% 'num_steps = step' where step is the approximate solution you would like
+% to visualize.
+plot_cases = false;
 for num_steps = 1:150
     
     fprintf('\nIteration %d', num_steps)
@@ -252,7 +258,7 @@ for num_steps = 1:150
     
     %==============================
     % Add objective functions
-    LP.addEntropy(1);
+    LP.applyAdmissibleCon('all');
     LP.maxDownflow(3, 1);
     
     % timer lap 1
@@ -263,6 +269,14 @@ for num_steps = 1:150
     
     dt_2 = now;
     
+    %==============================
+    % Post process the data
+    if plot_cases == true
+        Mos_approx = postSolution(x, net, LP.dv_index, LP.end_time, dx_res, dt_res,...
+            hard_queue_limit, soft_queue_limit);
+        Mos_approx.estimateState();
+        Mos_approx.plotJuncs('all', sprintf('%d intervals', num_steps))
+    end
     %==============================
     % save the solution
     sol1 = struct;
@@ -292,33 +306,45 @@ for num_steps = 1:150
 end
 
 
-%===============================================================
-%======= Plot the convergence and stability result  ============
+%% Plot the convergence and stability result
+%%
+% Plot the convergence result:
 figure
 plot(iter.num_intervals, iter.abs_error, 'LineWidth', 2);
 grid on
-xlabel('number of grid points', 'FontSize', 20);
+xlabel('number of intervals', 'FontSize', 20);
 ylabel('Abs error', 'FontSize', 20);
 title('Convergence', 'FontSize', 24);
-
+%%
+% Plot the stability result:
 figure
-[ax, h1, h2] = plotyy(iter.num_intervals, iter.tt_time,...
-                      iter.num_intervals, iter.solve_time);
-set(h1, 'color','red', 'LineWidth',2);
-set(h2, 'color', 'blue', 'LineWidth', 2);
-legend([h1, h2],'Computation time', 'Solve time');
-xlabel('number of grid points', 'FontSize', 20);
-title('Computation time', 'FontSize', 24);
-
-figure
-plot(iter.num_intervals, iter.max_weight, 'LineWidth', 2);
+semilogy(iter.num_intervals, iter.max_weight, 'LineWidth', 2);
 grid on
-xlabel('number of grid points', 'FontSize', 20);
+xlabel('number of intervals', 'FontSize', 20);
 ylabel('Max coefficient weight', 'FontSize', 20);
 title('Stability', 'FontSize', 24);
 
-toc
+%%
+% Plot the computation time
+figure
+[ax, h1, h2] = plotyy(iter.num_intervals, iter.tt_time,...
+                      iter.num_intervals, iter.solve_time);
+set(h1, 'color','blue', 'LineWidth',2);
+set(h2, 'color', 'red', 'LineWidth', 2);
+legend([h1, h2],'Computation time', 'Solve time');
+xlabel('number of intervals', 'FontSize', 20);
+title('Computation time', 'FontSize', 24);
 
+%% Conclusion
+% The plots indeed show the approximated solution converges to the exact
+% solution as the internal boundary grid resolution gets higher. In the
+% meanwhile, it also shows if the number of intervals goes to large, the
+% coefficicents in the objective function explod and the convex solver can
+% no longer produce meaningful result. However, it shows in the merge case,
+% 100 intervals would stil be able to produce the exact solution. In
+% practice, the time interval typically is 30s, which shows this solver is
+% capable to solving a 1-hour traffic in seconds without fail due to the
+% numerical rounding error.
 
 % profile viewer
 % p = profile('info');

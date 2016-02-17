@@ -143,7 +143,7 @@ while getEntropy == false && loopCounter <=50
     
     %===============================================================
     % Add objective functions
-    LP.addEntropy(1);
+    LP.applyAdmissibleCon(1);
     % LP.maxUpflow([1 2 4]);
     % LP.minDownflow(net, 1);
     % LP.maxDownflow(net, [1; 2]);

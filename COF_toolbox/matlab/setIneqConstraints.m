@@ -1,212 +1,200 @@
-% Yanning Li, Sep 11, 2015
-
-% This class sets the inequality constraints for the optimization program.
-% Cumunlativley, it has the following features
-% 1. It is based on the setIneqConstraints_grid.m which only adds the 
-%   minimum set of constarints based on heuristic knowledge. See the code 
-%   description in setIneqConstraints_grid.m for details.
-% 2. The variable names are changed which makes the code much more
-%   readable. The original code varialble names are defined in agreement
-%   with the equations in paper. 
-% 3. This version supports different levels of error for the value
-%   conditions.
-% 4. This version supports uneven discretization of the time and space.
-% 5. This version has full support for the initial condition, the boundary
-%   condition, the internal condition, the density condition. Those
-%   conditions are interacting. Requries quite some effort to fix.
-
-% The index of the variables is
-% [q_us, q_ds, rho_ini, L_traj, r_traj, 
-%  L_dens, rho_dens, L_queue, s_queue...
-%  bool_traj_min, bool_traj_max, 
-%  bool_dens_min, bool_dens_max, 
-%  other auxilary variables]
-
-% The first columns are A, the last column of the inequlity matrix is b
-% the signs follows Ax >= b
-
-% Description of value conditions:
-% Boundary condition: q_us, q_ds. The boundary flows at upstream and
-%       downstream position
-% Initial condition: rho_ini. The initial density on the road.
-% Internal trajectory condition: L_traj, r_traj. Internal condition is to 
-%       incorporate the trajectory data collected by probe vehicles. 
-%       Each internal condition is defined by a line segment. The position 
-%       of the line is defined by two points. The decision variables 
-%       associated with each internal condition are the vehicle id of that 
-%       line trajectory L_traj, and the passing rate r_traj. The passing 
-%       rate r_traj allows vehicles to pass this traj which is realistic in 
-%       multiple-lane traffic.
-% Density condition: L_dens, rho_dens. The density is similar to the
-%       initial condition except that it can be defined at any time. It is
-%       more useful for defining the objective. For instance, minimizing the 
-%       L1 norm of adjacent density conditions, which can smooth the final
-%       estimates of the traffic density. 
-%       Each density condition is defined by a vetical line segment. The
-%       decision variables associated with each density condition are the
-%       L_dens, which is the vehicle id at the x_min point; the rho_dens
-%       which is the density in that line segment. 
-% Soft queue limit: L, s. The label of the vehicle at (x,t) and the slack variable.
-%       constriants: L <= M^{us, ds, init}; L = M^us + s; s>=0; min s^2
-%       
 
 
 classdef setIneqConstraints
+    % This class constructs the inequality constraints for the CP for each link
+    % Yanning Li, Feb 17, 2016
+    %
+    % Features:
+    %     - It adds minimum number of constraints based on heuristic
+    %       knowledge. E.g. if a point (t,x) is within the characteristic
+    %       domain of a upstream boundary condition, then it suffices to consider 
+    %       only this upstream boundary solution at the point.
+    %     - It supports different errors for different measurement which may 
+    %       potentially be used for traffic estimation. 
+    %       NOTE: Network solver and onramp control assume 0 error.
+    %     - It supports uneven discretization of the time space boundary.   
+    %     - It supports the initial condition, the upstream and downstream
+    %       condition, the internal condition, and the density condition,
+    %       which can later be used for traffic estimation.
+    %       NOTE: Network solver and onramp control assume only given
+    %       initial and boundary conditions.
+    %     - The index of the decision variables is now saved in dv_link
+    %       struct. In general, decision variabels are indexed as:
+    %       [q_us, q_ds, rho_ini, L_traj, r_traj,
+    %        L_dens, rho_dens, L_queue, s_queue...
+    %        bool_traj_min, bool_traj_max,
+    %        bool_dens_min, bool_dens_max,
+    %        other auxilary variables]
+    % 
+    % Description of value conditions:
+    % Boundary condition: q_us, q_ds. The boundary flows at upstream and
+    %       downstream position
+    % Initial condition: rho_ini. The initial density on the road.
+    % Internal trajectory condition: L_traj, r_traj. Internal condition is to
+    %       incorporate the trajectory data collected by probe vehicles.
+    %       Each internal condition is defined by a line segment. The position
+    %       of the line is defined by two points. The decision variables
+    %       associated with each internal condition are the vehicle id of that
+    %       line trajectory L_traj, and the passing rate r_traj. The passing
+    %       rate r_traj allows vehicles to pass this traj which is realistic in
+    %       multiple-lane traffic.
+    % Density condition: L_dens, rho_dens. The density is similar to the
+    %       initial condition except that it can be defined at any time. It is
+    %       more useful for defining the objective. For instance, minimizing the
+    %       L1 norm of adjacent density conditions, which can smooth the final
+    %       estimates of the traffic density.
+    %       Each density condition is defined by a vetical line segment. The
+    %       decision variables associated with each density condition are the
+    %       L_dens, which is the vehicle id at the x_min point; the rho_dens
+    %       which is the density in that line segment.
+    % Soft queue limit: L, s. The label of the vehicle at (x,t) and the slack variable.
+    %       constriants: L <= M^{us, ds, init}; L = M^us + s; s>=0; min s^2
     
-    properties
+    properties (Access = public)
         
-        dv_link;     % the index of the link
-                     % .upstream; .downstream; .initial; 
-                     % .internal_L; .internal_r; 
-                     % .density_L; .density_rho;
-                     % .queue_L; .queue_s
-                     % .num_step_past_us, .num_step_past_ds
-        dv_max;      % keep track of the maximal index including the bools
-        dv_var_max; % the maximum index for link float variables (not the bools)
+        % struct, the index of decision variables for the link
+        % .upstream; .downstream; .initial;
+        % .internal_L; .internal_r;
+        % .density_L; .density_rho;
+        % .queue_L; .queue_s
+        % .num_step_past_us, .num_step_past_ds
+        dv_link;     
+                     
+        dv_max;      % the maximal number of decision variables including the bools             
+        
+    end
+    
+    properties (Access = protected, Hidden = true)
+        
+        dv_var_max;  % the maximum index for link float variables (without the bools)
         
         num_us_con;  % num of upstream boundary conditions
         num_ds_con;  % num of downstream boundary conditions
         num_initial_con;  % num of initial conditions
-        
-        % num of internal conditions; internal condition is defined by two
-        % points in the time space domain with a velocity and rate of
-        % passing, collected by probe vehicles with the same id. 
-        % Let us call this more explicitely in this code as trajectory 
-        % conditions from now on. For each internal condition, we need two
-        % variables, the vehicle id L and the passing rate r.
-        num_internal_con;  
-        
-        % Density conditions is defined by two points on a vertical line,
-        % with the density value in between those two points.
-        num_density_con;  % num of density conditions
-        
-        % soft queue limit points.
-        % This is not a value condtion, but for posing a soft queue limit
-        % Each pt associates with M and a slack variable s
-        % M <= M_{us, ds, init}, and M = M_us + s, s>=0, penalize s^2
-        num_soft_queue_pt;
+        num_internal_con;  % number of internal trajectory conditiosn
+        num_density_con;    % num of density conditions
+        num_soft_queue_pt;  % number of soft congestion sampling points
         
         v;  % freeflow speed
         w;  % congestion slope
         k_c;    % critical density
         k_m;    % maximal density
-        q_max;
+        q_max;  % maximal capacity
         
-        start_time;
-        now_time;
-        end_time;   % end of simulation time window
+        start_time; % start time of the simulation time horizon
+        now_time;   % the current time in the simulation environment
+        end_time;   % end of simulation time horizon
       
-        %=========================================================
-        % the following are for boundary conditions
-        us_pos_m;     % upstream position in meters
+        us_pos_m;    % upstream position in meters
         ds_pos_m;    % post meter of the downstream position
         
-        % up and downstream time grid
-        T_us;       % upstream_steps x 1
-        T_us_cum;   % cumulative; upstream_steps+1 x 1
-        T_ds;
-        T_ds_cum;
+        T_us;       % num_us_con x 1, intervals of the upstream grids
+        T_us_cum;   % num_us_con+1 x 1, upstream grid points
+        T_ds;       % num_ds_con x 1, intervals of the dowsntream grids
+        T_ds_cum;   % um_ds_con+1 x 1, downstream grid points
         
-        % for boundary conditions
-        qin_meas;
-        qout_meas;
+        qin_meas;   % upstream boundary conditions (data)
+        qout_meas;  % downstream boundary condition (data)
         
-        % Use absolute error expressed in percent of normal range except
-        % the passing rate r.
-        % q_meas-e_his*q^max < q < q_meas+e_his*q^max
-        e_max;  % error 
         
-        e_his;  % error for historical data; normal q_max
-        e_est;  % error for the estimated density condition; normal k_c
-        e_meas_flow; % error of the measurement of boundary flows; normal q_max
+        e_his;  % error for historical data; 
+                % q_meas-e_his*q^max < q < q_meas+e_his*q^max   
+        e_est;  % error for the estimated density condition; 
+                % rho_meas-e_est*k_c < rho < rho_meas+e_his*k_c   
+        e_meas_flow; % error of the measurement of boundary flows
+                     % q_meas-e_meas_flow*q^max < q < q_meas+e_meas_flow*q^max   
         e_meas_dens;    % error of the density condition value; normalk_c
+                        % rho_meas-e_meas_dens*k_c < rho < rho_meas+e_meas_dens*k_c   
         
-        % For passing rate r, use relative error
-        % r_meas(1-err) <= r <= r_meas(1+err)
         e_meas_traj_r;  % error of the trajectory passing rate
+                        % r_meas(1-err) <= r <= r_meas(1+err)
         
         %=========================================================
         % The following are for initial conditions
+        
         X_grid;       % the length of each initial condition segments
-        X_grid_cum;   % the grid of each initial condition separation point
-        rho_ini;    % b_max x 1
-        indiced_rho_ini;    
+        X_grid_cum;   % initial grid points
+        rho_ini;      % num_initial_con x 1
+        indiced_rho_ini;   % indexing the freeflow and congested flow blocks of initial condition
         
         
         %=========================================================
         % for internal (trajectory) conditions
-        x_min_traj;
-        x_max_traj;
-        t_min_traj;
-        t_max_traj;
-        v_meas_traj;
-        r_meas_traj;
+        
+        x_min_traj; % num_internal_con x 1, location of the min point
+        x_max_traj; % num_internal_con x 1, location of the max point
+        t_min_traj; % num_internal_con x 1, time of the min point
+        t_max_traj; % num_internal_con x 1, time of the max point
+        v_meas_traj;    % num_internal_con x 1, velocity of each traj condition
+        r_meas_traj;    % num_internal_con x 1, passing rate of each internal condition
         
         % for density conditions
-        x_min_dens;
-        x_max_dens;
-        t_dens;
-        dens_meas;
+        
+        x_min_dens; % num_density_con x 1, location of the min point
+        x_max_dens; % num_density_con x 1, location of the max point
+        t_dens;     % num_density_con x 1, time of the point
+        dens_meas;  % num_density_con x 1, density of the segment
         
         % for soft queue points positions
-        soft_queue_x;
-        soft_queue_t;
         
-        % the boolean variables for each point of the internal or the
-        % density condition. 
-        % It is an array with the length of the number of points. Each
-        % entry is the number of boolean variables that need to be added. 
-        % Note the number of loolean variables are computed as the log2 of the
-        % number of solutions. 
-        % E.g. for point (t,x) with value condition L, it associated with 4 
-        %   solutions, then the number of boolean variables is 2 which gives 
-        %   four combinations. This saves memory.
-        nb_min_traj;
-        nb_max_traj;
-        nb_min_dens;
-        nb_max_dens;
+        soft_queue_x;   % num_soft_queue_pt x 1, location of each point
+        soft_queue_t;   % num_soft_queue_pt x 1, time of each point
+        
+        % Boolean variables are need to integrate the internal and the
+        % density conditions 
+        %   - the number of bools for each point = log2 of the number of solutions 
+        %     active at each point
+        %   - E.g. for point (t,x) with value condition L, it associated with 4 
+        %     solutions, then the number of boolean variables is 2 which gives 
+        %     four combinations. This saves memory.
+        
+        nb_min_traj;    % num_internal_con x 1, the number of bools associated with each min traj point
+        nb_max_traj;    % num_internal_con x 1, the number of bools associated with each max traj point
+        nb_min_dens;    % num_density_con x 1, the number of bools associated with each min dense point
+        nb_max_dens;    % num_density_con x 1, the number of bools associated with each max dens point
 
         % auxiliary variables
-        num_aux;
-        size_row;
         
-        % total number of boolean variables
-        num_bool;
+        num_aux;    % number of auxiliary variables 
+        size_row;   % the size of the constraints matrix row
+        
+        num_bool;   % the total number of bool variables
         
     end
     
-    methods
+    
+    methods (Access = public)
         
-        % This function set the inequality constraints of one link
-        % input: 
-        %       para: v, w, k_c, k_m: road parameters; postm: length in meters
-        %       start_time, end_time: start and end time of the simulation
-        %       now_time: the current time (the timestamp of latest data
-        %           mesurement). Data before this will be measurement data;
-        %           after this will be historical data.
-        %       Boundary_con: a struct, with fields
-        %           .BC_us: column vector, float, upstream measuremnt data
-        %           .BC_ds: column vector, float, downstream measuremnt data
-        %           .T_us: column vector, float, the upstream time grid, same
-        %               length as qin_meas
-        %           .T_ds: column vector, float, downstream time grid
-        %       Initial_con: a struct with fields
-        %           .X_grid_cum: column vector, float, cumulative space grid
-        %           .IC: column vector, float, initial density 
-        %       Traj_con: a struct with fields for trajectory condition
-        %       Dens_con: a struct with fields for density condition
-        %       soft_queue_limit: float, the soft limit of the length of
-        %           the queue in meters. Auto set every 30 s; 
-        %           Set value to NaN to disable
-        %       error: struct, must have a field e_default
-        %              other fields corresponding to each property
         function self = setIneqConstraints(...
                 para,...
                 start_time, now_time, end_time,...
                 Boundary_con,...
                 Initial_con, Traj_con, Dens_con, ...
                 soft_queue_limit,...
-                errors)            
+                errors)          
+            % This function set the inequality constraints of one link
+            % input:
+            %       para: v, w, k_c, k_m: road parameters; postm: length in meters
+            %       start_time, end_time: start and end time of the simulation
+            %       now_time: the current time (the timestamp of latest data
+            %           mesurement). Data before this will be measurement data;
+            %           after this will be historical data.
+            %       Boundary_con: a struct, with fields
+            %           .BC_us: column vector, float, upstream measuremnt data
+            %           .BC_ds: column vector, float, downstream measuremnt data
+            %           .T_us: column vector, float, the upstream time grid, same
+            %               length as qin_meas
+            %           .T_ds: column vector, float, downstream time grid
+            %       Initial_con: a struct with fields
+            %           .X_grid_cum: column vector, float, cumulative space grid
+            %           .IC: column vector, float, initial density
+            %       Traj_con: a struct with fields for trajectory condition
+            %       Dens_con: a struct with fields for density condition
+            %       soft_queue_limit: float, the soft limit of the length of
+            %           the queue in meters. Auto set every 30 s;
+            %           Set value to NaN to disable
+            %       error: struct, must have a field e_default
+            %              other fields corresponding to each property
             
             % set road parameters
             self.v = para.vf;
@@ -267,6 +255,14 @@ classdef setIneqConstraints
                                     self.dv_max+self.num_initial_con];
             self.dv_max = self.dv_max + self.num_initial_con;
             
+            % Boundary condition
+            self.T_us = Boundary_con.T_us;
+            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
+            self.T_ds = Boundary_con.T_ds;
+            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
+            self.qin_meas = Boundary_con.BC_us;
+            self.qout_meas = Boundary_con.BC_ds;
+            
             if isfield(Traj_con, 'x_min_traj')
                 self.num_internal_con = length(Traj_con.x_min_traj);
                 % internal L
@@ -302,11 +298,21 @@ classdef setIneqConstraints
                     error('Current version does not support soft queue limit with internal or density condition.')
                 end
                 
-                tmp_grid = self.now_time:30:self.end_time;
-                if tmp_grid(end)~= self.end_time
-                    tmp_grid = [tmp_grid'; self.end_time];
-                end
-                self.soft_queue_t = tmp_grid';
+                % The time grid is the intersection point between vf from
+                % upstream boudnary condition with x_queue
+                dt = (self.ds_pos_m - soft_queue_limit)/self.v;
+                tmp_grid = self.T_us_cum + dt;
+                tmp_grid = tmp_grid( tmp_grid <= self.end_time);
+                
+                self.soft_queue_t = tmp_grid;
+                
+                % Evenly sampling in the time domain.
+%                 tmp_grid = self.now_time:30:self.end_time;
+%                 if tmp_grid(end)~= self.end_time
+%                     tmp_grid = [tmp_grid'; self.end_time];
+%                 end
+%                 self.soft_queue_t = tmp_grid';
+                
                 self.num_soft_queue_pt = length(tmp_grid);
                 self.soft_queue_x = ones(self.num_soft_queue_pt,1)*...
                     (self.ds_pos_m-soft_queue_limit);
@@ -323,14 +329,6 @@ classdef setIneqConstraints
             end            
             self.dv_var_max = self.dv_max;
             
-            
-            % Boundary condition
-            self.T_us = Boundary_con.T_us;
-            self.T_us_cum = [0; cumsum(Boundary_con.T_us)];
-            self.T_ds = Boundary_con.T_ds;
-            self.T_ds_cum = [0; cumsum(Boundary_con.T_ds)];
-            self.qin_meas = Boundary_con.BC_us;
-            self.qout_meas = Boundary_con.BC_ds;
             
             % find out the number of past steps and the number of predict
             % steps
@@ -453,427 +451,12 @@ classdef setIneqConstraints
         end
         
         
-        
         %==========================================================================
-        % Equations that define the upstream condition
-        % input:
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the value of the vehicle id
-        %           using the upstream boundary conditions
-        function[array] = us_con(self,t,x)
-            
-            array = zeros(1,self.size_row);  %Initialize the array
-            
-            if t < self.start_time || t > self.end_time
-                array = [];
-                return
-            end
-            
-            n = sum(self.T_us_cum <= t);  % in step n interval [ , )
-            if t == self.end_time     % the final time point
-                n = n-1;    % in the last step interval
-            end
-            
-            
-            if( (abs(x - self.us_pos_m)<0.00001) && (self.T_us_cum(n)<=t) &&...
-                (t<=self.T_us_cum(n+1)) && (n <= self.num_us_con) )
-                array(1, self.dv_link.upstream(1) : self.dv_link.upstream(1)-1 + n-1) = self.T_us(1:n-1);
-                array(1, self.dv_link.upstream(1)-1 + n) = t-self.T_us_cum(n);
-                return
-            else
-                array = []; %return a "NULL"
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equations that define the downstream condition
-        % input:
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the value of the vehicle id
-        %           using the downstream boundary conditions
-        function [array] = ds_con(self,t,x)
-            array = zeros(1,self.size_row);
-            
-            if t < self.start_time || t > self.end_time
-                array = [];
-                return
-            end
-            
-            n = sum(self.T_ds_cum <= t);  % in step n interval [ , )
-            if t == self.end_time     % the final time point
-                n = n-1;    % in the last step interval
-            end
-            
-            if( (abs(x-self.ds_pos_m)<0.01) && (self.T_ds_cum(n) <= t) &&...
-                (t<= self.T_ds_cum(n+1)) && (n <= self.num_ds_con) )
-                array(1,self.dv_link.initial(1):...
-                        self.dv_link.initial(2) ) = -self.X_grid;   %Initial number of vehicles
-                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n-1) = self.T_ds(1:n-1);
-                array(1,self.dv_link.downstream(1)-1 + n ) = t-self.T_ds_cum(n);
-                return
-            else
-                array = [];
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equations that define the initial condition
-        % input:
-        %       b: the index of the initial condition this point in on.
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the value of the vehicle id
-        %           using the initial condition
-        function[array] = initial_con(self, b, t, x)
-            if( (abs(t-self.t0)<0.01) &&  ( sum(self.X_grid(1:b)) <= x) &&...
-                    ( x <=sum(self.X_grid(1:b+1))) && (b <= self.num_initial_con) )
-                array = zeros(1,self.size_row);
-                array(1, self.dv_link.initial(1) : self.dv_link.initial(1)-1 + b) = -self.X_grid(1:b);
-                array(1, self.dv_link.initial(1)-1 +  b +1) = -(x-sum(self.X_grid(1:b)));
-                return
-            else
-                array = []; %Return a "NULL"
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equations that define the internal (trajectory) condition
-        % input:
-        %       m: the index of the internal condition this point in on.
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the value of the vehicle id
-        %           using the internal condition
-        function [array] = traj_con(self, m ,t ,x)
-            
-            array = zeros(1,self.size_row);
-            if ( (abs(x - (self.v_meas_traj(m)*(t-self.t_min_traj(m)) + self.x_min_traj(m))) < 0.01) &&...
-                    (t>= self.t_min_traj(m)) && (t<= self.t_max_traj(m)) )
-                array(1, self.dv_link.internal_L(1)-1 + m) = 1;
-                array(1, self.dv_link.internal_r(1)-1 + m ) = t - self.t_min_traj(m);
-                return
-            else
-                array = [];
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equations that define the density condition
-        % input:
-        %       u: the index of the density condition this point in on.
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the value of the vehicle id
-        %           using the density condition
-        % new variables x_min_u, x_max_u, t_u, u_max, m_max_vm0
-        function [array] = dens_con(self, u ,t ,x)
-            
-            if ( (abs(t-self.t_dens(u)) < 0.0001) &&...
-                    (x>= self.x_min_dens(u)) && (x<= self.x_max_dens(u)) )
-                array = zeros(1,self.size_row);
-                array(1, self.dv_link.density_L(1)-1 + u) = 1;
-                array(1, self.dv_link.density_rho(1)-1 + u ) =...
-                    -(x - self.x_min_dens(u+1));
-                return
-            else
-                
-                array = [];
-                return
-                
-            end
-            
-        end
-        
-        
-        %==========================================================================
-        % Equation that gives explicit vehicle id at (t,x) by the nth upstream condition
-        % input:
-        %       n: the index of upstream condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth upstream boundary condition
-        function[array] = m_us_con(self,n,t,x)
-            
-            array = zeros(1,self.size_row);  %Initialize the array
-            
-            % characteristic domain
-            if((self.T_us_cum(n) + (x - self.us_pos_m)/self.v <= t) && ...
-                    (self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v >= t ) && (n<= self.num_us_con))
-                array(1, self.dv_link.upstream(1): self.dv_link.upstream(1)-1 + n-1) = self.T_us(1:n-1);
-                array(1, self.dv_link.upstream(1)-1 + n) = t - (x-self.us_pos_m) / self.v - self.T_us_cum(n);
-                return
-                
-            % Fan domain
-            elseif((self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v < t) && (n <= self.num_us_con))
-                array(1,self.dv_link.upstream(1): self.dv_link.upstream(1)-1 + n) = self.T_us(1:n);
-                array(1,self.size_row) = -self.k_c*self.v * (t - self.T_us_cum(n+1) - (x-self.us_pos_m)/self.v);
-                return
-                
-            else
-                array = [];     %return a "null"
-                return
-            end
-            
-        end
-        
-        
-        %==========================================================================
-        % Equation that gives explicit vehicle id at (t,x) by the nth downstream condition
-        % input:
-        %       n: the index of downstream condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth downstream boundary condition
-        function [array] = m_ds_con(self,n,t,x)
-            array = zeros(1,self.size_row);
-            
-            % in characteristic domain
-            if( (self.T_ds_cum(n) + (x - self.ds_pos_m)/self.w <= t) &&...
-                    (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w >= t )&& (n <= self.num_ds_con))
-                array(1,self.dv_link.initial(1):...
-                        self.dv_link.initial(2)) = -self.X_grid; %initial number of vehicles
-                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n-1) = self.T_ds(1:n-1);
-                array(1,self.dv_link.downstream(1)-1 + n) = t - (x-self.ds_pos_m)/self.w - self.T_ds_cum(n);
-                array(1,self.size_row) = self.k_m*(x-self.ds_pos_m);
-                return
-                
-            % in Fan domain
-            elseif( (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w < t) && (n <= self.num_ds_con))
-                array(1,self.dv_link.initial(1):...
-                        self.dv_link.initial(2)) = -self.X_grid; %initial number of vehicles
-                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n) = self.T_ds(1:n);
-                array(1,self.size_row) = -self.k_c*self.v * (t - self.T_ds_cum(n+1) - (x-self.ds_pos_m)/(self.v));
-                return
-            else
-                array = []; %return a "null"
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equation that gives explicit vehicle id at (t,x) by the mth
-        %   internal (trajectory) condition
-        % input:
-        %       m: the index of internal condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth internal boundary condition
-        function [array] = m_traj_con(self, m, t, x)
-            array = zeros(1,self.size_row);
-            
-            if( (x >= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
-                ( x >= self.x_max_traj(m) + self.v*(t-self.t_max_traj(m))) &&...
-                (x <= self.x_min_traj(m) + self.v*(t-self.t_min_traj(m))) )
-                array(1,self.dv_link.internal_L(1)-1 + m) = 1;
-                array(1,self.dv_link.internal_r(1)-1 + m) =...
-                    t - (x - self.x_min_traj(m) - self.v_meas_traj(m)*(t - self.t_min_traj(m))) / (self.v - self.v_meas_traj(m)) - self.t_min_traj(m) ;
-                return
-            end
-            
-            if ( (x<= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
-                 ( x <= self.x_max_traj(m) + self.w*(t-self.t_max_traj(m))) &&...
-                 (x >= self.x_min_traj(m) + self.w*(t-self.t_min_traj(m))) )
-                array(1,self.dv_link.internal_L(1)-1 + m) = 1;
-                array(1,self.dv_link.internal_r(1)-1 + m) =...
-                    t - (x - self.x_min_traj(m) - self.v_meas_traj(m)*(t-self.t_min_traj(m)))/(self.w - self.v_meas_traj(m)) - self.t_min_traj(m);
-                array(1,self.size_row) = -self.k_c*(self.v-self.w)*(x - self.x_min_traj(m) - self.v_meas_traj(m)*(t-self.t_min_traj(m)))/(self.w - self.v_meas_traj(m)) ;
-                return
-            end
-            
-            if( (x < self.x_max_traj(m) + self.v*(t - self.t_max_traj(m))) &&...
-                    ( x > self.x_max_traj(m) + self.w*(t - self.t_max_traj(m))) )
-                array(1, self.dv_link.internal_L(1)-1 + m) = 1;
-                array(1, self.dv_link.internal_r(1)-1 + m) = self.t_max_traj(m) - self.t_min_traj(m);
-                array(1, self.size_row) = -(t-self.t_max_traj(m))*self.k_c*(self.v - (x-self.x_max_traj(m))/(t-self.t_max_traj(m)+0.000001));
-                return
-            else
-                array = []; %Return a "NULL"
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equation that gives explicit vehicle id at (t,x) by the bth
-        %   initial condition, when the p<pc
-        % input:
-        %       b: the index of internal condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth internal boundary condition
-        function [array] = m_initial_con_ff(self,b,t,x)
-            array = zeros(1,self.size_row);
-            
-            % characteristic domain
-            if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.v <= x) &&...
-                    (x <=self.us_pos_m+ sum(self.X_grid(1:b)) + t*self.v) &&...
-                    ( b <= self.num_initial_con))
-                array(1, self.dv_link.initial(1) : ...
-                         self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
-                
-                array(1,self.dv_link.initial(1)-1 + b) = ...
-                    (t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
-                return
-            end
-            
-            % Fan domain
-            if ( (self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
-                    (x < self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.v) &&...
-                    (b <= self.num_initial_con))
-                array(1, self.dv_link.initial(1): ...
-                         self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
-                
-                array(1,self.size_row) = -self.k_c*(t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
-                return
-            else
-                array = []; %Return a "NULL"
-                return
-            end
-        end
-        
-        
-        %==========================================================================
-        % Equation that gives explicit vehicle id at (t,x) by the bth
-        %   initial condition, when the p>pc
-        % input:
-        %       b: the index of initial condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth initial boundary condition
-        function [array] = m_initial_con_cf(self,b,t,x)
-            array = zeros(1,self.size_row);
-            % characteristic domain
-            if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
-                    (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w) &&...
-                    ( b <= self.num_initial_con))
-                
-                array(1,self.dv_link.initial(1) :...
-                        self.dv_link.initial(1)-1 + b - 1 ) = -self.X_grid(1:b-1);
-                array(1,self.dv_link.initial(1)-1 + b) = ...
-                    (t*self.w - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
-                array(1,self.size_row) = self.k_m*t*self.w;
-                return
-            end
-            
-            % Fan domain
-            if ( (self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w < x) &&...
-                    (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.v) &&...
-                    (b <= self.num_initial_con))
-                
-                array(1,self.dv_link.initial(1):...
-                    self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
-                array(1,self.dv_link.initial(1)-1 + b) = -self.X_grid(b);
-                array(1,self.size_row) = -(self.k_c*(t*self.w - x + sum(self.X_grid(1:b)) + self.us_pos_m) - self.k_m*t*self.w);
-                return
-            else
-                array = []; %Return a "NULL" value
-                return
-            end
-        end
-        
-        
-        %==========================================================================        
-        % Equation that gives explicit vehicle id at (t,x) by the uth
-        %   density condition, when the p<pc
-        % input:
-        %       u: the index of density condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth density boundary condition
-        function [array] = m_dens_con_ff(self,u,t,x)
-            
-            array = zeros(1,self.size_row);
-            
-            if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.v <= x) &&...
-                 (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
-                 (t>=self.t_dens(u)) && ( u <= self.num_density_con))
-                
-                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
-                array(1,self.dv_link.density_rho(1)-1 + u) =...
-                    (t-self.t_dens(u))*self.v - x + self.x_min_dens(u);
-                return
-            end
-            
-            if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
-                 (x <= self.x_min_dens(u) + (t-self.t_dens(u))*self.v) &&...
-                 (t>=self.t_dens(u)) && (u <= self.num_density_con))
-                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
-                array(1,self.size_row) = -self.k_c*((t-self.t_dens(u))*self.v - x + self.x_min_dens(u));
-                return
-            else
-                
-                array = []; %Return a "NULL"
-                return
-                
-            end
-            
-        end
-      
-        
-        %==========================================================================        
-        % Equation that gives explicit vehicle id at (t,x) by the uth
-        %   density condition, when the p>pc
-        % input:
-        %       u: the index of density condition
-        %       t,x: the time, location of the point
-        % output:
-        %       array: an array which compute the vehicle id at (t,x) using
-        %           the nth density boundary condition
-        function [array] = m_dens_con_cf(self,u,t,x)
-            
-            array = zeros(1,self.size_row);
-            
-            if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
-                 (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.w) &&...
-                 (t>=self.t_dens(u)) && ( u <= self.num_density_con))
-                
-                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
-                array(1,self.dv_link.density_rho(1)-1 + u) =...
-                        (t-self.t_dens(u))*self.w - x + self.x_min_dens(u);
-                array(1,self.size_row) = self.k_m*(t-self.t_dens(u))*self.w;
-                return
-            end
-            
-            if ( (self.x_max_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
-                 (x <= self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
-                 (t>=self.t_dens(u)) && (u <= self.num_density_con))
-                
-                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
-                array(1,self.size_row) = -(self.k_c*((t-self.t_dens(u))*self.w - x +...
-                                self.x_max_dens(u)) - self.k_m*(t-self.t_dens(u))*self.w);
-                return
-            else
-                array = []; %Return a "NULL"
-                return
-            end
-            
-        end
-        
-        
-        %==========================================================================
-        % Function to create the model constraints matrix
-        % Idea: the label at each point must be the smallest solution
-        % output: 
-        %       list[:,1:end-1] * x >= list[:,end]
-        %       the model constraints matrix
         function  [list] = setModelMatrix(self)
+            % This function creates the model constraints matrix using inf-morphism property
+            % output:
+            %       list[:,1:end-1] * x >= list[:,end]
+            %       the model constraints matrix
             
             % first allocate memory for list
             
@@ -904,12 +487,12 @@ classdef setIneqConstraints
                 % freeflow speed intersection at downstream point
                 % point (self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m) 
                 % where solution >= value condition 
-                array = self.m_us_con(n, self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m);
-                array2 = self.subtractArray(array, self.ds_con(self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m));
-                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_us_con(n, self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m);
+%                 array2 = self.subtractArray(array, self.ds_con(self.T_us_cum(n) + (self.ds_pos_m-self.us_pos_m)/self.v, self.ds_pos_m));
+%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
                 % There is no need to pose the inequality for upstream
                 % points or initial time points
@@ -999,15 +582,15 @@ classdef setIneqConstraints
                 end
                 
                 % intersection point at upstream (self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w,self.us_pos_m)
-                array = self.m_ds_con(n,self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m);
-                array2 = self.subtractArray(array, self.us_con(self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m));
-                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-                    rows = rows+1;
-                    
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_ds_con(n,self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m);
+%                 array2 = self.subtractArray(array, self.us_con(self.T_ds_cum(n) + (self.us_pos_m-self.ds_pos_m)/self.w, self.us_pos_m));
+%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+%                     rows = rows+1;
+%                     
+%                     list(rows,:) = array2;
+%                 end
                 
-                % There is no need to pose the inequality for upstream
+                % There is no need to pose the inequality for downstream
                 % points or initial time points
                 
                 % internal condition points
@@ -1096,22 +679,22 @@ classdef setIneqConstraints
                 
                 % at upstream intersection points
                 % tau 1
-                array = self.m_initial_con_ff(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.start_time +...
-                    (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
-                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_initial_con_ff(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
+%                 array2 = self.subtractArray(array,self.us_con(self.start_time +...
+%                     (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
+%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
                 % tau 2
-                array = self.m_initial_con_cf(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.start_time +...
-                    (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
-                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_initial_con_cf(k,self.start_time + (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m);
+%                 array2 = self.subtractArray(array,self.us_con(self.start_time +...
+%                     (-sum(self.X_grid(1:k)))/self.w,self.us_pos_m));
+%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
                 
                 % at downstream points
@@ -1136,21 +719,21 @@ classdef setIneqConstraints
                 end
                 
                 % intersection point at downstream
-                array = self.m_initial_con_ff(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.start_time +...
-                    (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
-                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_initial_con_ff(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
+%                 array2 = self.subtractArray(array,self.ds_con(self.start_time +...
+%                     (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
+%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
-                array = self.m_initial_con_cf(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.start_time +...
-                    (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
-                if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_initial_con_cf(k,self.start_time + (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m);
+%                 array2 = self.subtractArray(array,self.ds_con(self.start_time +...
+%                     (self.ds_pos_m-(sum(self.X_grid(1:k-1))+self.us_pos_m))/self.v,self.ds_pos_m));
+%                 if(~isempty(array2) && ~all(array2<=10e-11 & array2 >=-10e-11))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
                 % for internal points
                 for p=1:self.num_internal_con
@@ -1599,21 +1182,21 @@ classdef setIneqConstraints
                 end
                 
                 % upstream intersection points
-                array = self.m_dens_con_ff(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
-                        (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
-                if(~isempty(array2))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
-                
-                array = self.m_dens_con_cf(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
-                array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
-                    (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
-                if(~isempty(array2))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_dens_con_ff(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
+%                 array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
+%                         (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
+%                 if(~isempty(array2))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
+%                 
+%                 array = self.m_dens_con_cf(k,self.t_dens(k) + (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m);
+%                 array2 = self.subtractArray(array,self.us_con(self.t_dens(k) +...
+%                     (self.us_pos_m-self.x_max_dens(k))/self.w,self.us_pos_m));
+%                 if(~isempty(array2))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
                 
                 % downstream points
@@ -1638,21 +1221,21 @@ classdef setIneqConstraints
                 end
                 
                 % downstream intersection points
-                array = self.m_dens_con_ff(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
-                    (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
-                if(~isempty(array2))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
-                
-                array = self.m_dens_con_cf(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
-                array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
-                    (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
-                if(~isempty(array2))
-                    rows = rows+1;
-                    list(rows,:) = array2;
-                end
+%                 array = self.m_dens_con_ff(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
+%                 array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
+%                     (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
+%                 if(~isempty(array2))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
+%                 
+%                 array = self.m_dens_con_cf(k,self.t_dens(k) + (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m);
+%                 array2 = self.subtractArray(array,self.ds_con(self.t_dens(k) +...
+%                     (self.ds_pos_m-self.x_min_dens(k))/self.v,self.ds_pos_m));
+%                 if(~isempty(array2))
+%                     rows = rows+1;
+%                     list(rows,:) = array2;
+%                 end
                 
                 
                 % internal condition points
@@ -1883,15 +1466,12 @@ classdef setIneqConstraints
         
         
         %==========================================================================
-        % Function to create the data constraints
-        % Relative error does not make sense and fail when x_meas = 0.
-        % Use absolute error expressed by percent of the normal range.
-        % The corresponding variable x is constrained by
-        % x - x_normal*e <= x <= x + x_normal*e, where x_normal = q_max, kc
-        % output: 
-        %       list[:,1:end-1] * x >= list[:,end]
-        %       the data constraints matrix
         function [list2] = setDataMatrix(self)
+             % This function creates the data constraints
+             % x - x_normal*e <= x <= x + x_normal*e, where x_normal = q_max, kc
+             % output:
+             %       the data constraints matrix
+             %       list2[:,1:end-1] * x >= list2[:,end]
                         
             %Use sparse matrix to speed up computation
             list2 = zeros(10000,self.size_row);
@@ -2040,19 +1620,17 @@ classdef setIneqConstraints
         end
         
         
-        
         %==========================================================================
-        % Function to create the MILP constraints associated with internal
-        % trajectory conditions. Each internal trajectory point has a
-        % vehicle id L.
-        % L = min( Mi (all value condition solutions) )
-        % Use binary variables to remove nonliear min function as
-        %   L <= Mi for all i
-        %   inf*bi + L >= Mi for all i
-        %   sum(1-bi) = 1 (one and only one bi = 0)
-        % output: 
-        %       list[:,1:end-1] * x >= list[:,end]
         function [list3] = setInternalConstraints(self)
+            % This function constructs the integer constraints associated with internal trajectory conditions. 
+            %   - Each internal trajectory point has a vehicle id L.
+            %   - L = min( Mi (all value condition solutions) )
+            %   - Use binary variables to remove nonliear min operator as
+            %       L <= Mi for all i
+            %       inf*bi + L >= Mi for all i
+            %       sum(1-bi) = 1 (one and only one bi = 0)
+            % output:
+            %       list3[:,1:end-1] * x >= list3[:,end]
             
             list3 = zeros(0,0);
             
@@ -2480,17 +2058,16 @@ classdef setIneqConstraints
 
 
         %==========================================================================
-        % Function to create the MILP constraints associated with density
-        % conditions. Each density condition end point has a
-        % vehicle id L.
-        % L = min( Mi (all value condition solutions) )
-        % Use binary variables to remove nonliear min function as
-        %   L <= Mi for all i
-        %   inf*bi + L >= Mi for all i
-        %   sum(1-bi) = 1 (one and only one bi = 0)
-        % output:
-        %       list[:,1:end-1] * x >= list[:,end]
         function [list3] = setDensityConstraints(self)
+            % This function constructs the integer constraints associated with internal trajectory conditions. 
+            %   - Each density condition end point has a vehicle id L.
+            %   - L = min( Mi (all value condition solutions) )
+            %   - Use binary variables to remove nonliear min function as
+            %       L <= Mi for all i
+            %       inf*bi + L >= Mi for all i
+            %       sum(1-bi) = 1 (one and only one bi = 0)
+            % output:
+            %       list[:,1:end-1] * x >= list[:,end]
             
             list3 = zeros(0,0);
             
@@ -2922,21 +2499,20 @@ classdef setIneqConstraints
         
         
         %==========================================================================
-        % Function to create hard constraitns for queue limit.
-        % Intuition: if the queue extends to the point, then the solution L
-        % at that point comes from the downstream. Since by triangular FD,
-        % the point will at only in the charicateristic domain M_us of one value
-        % condition. Similarly, it locates only in the charactheristic
-        % domain M_ds of one downstream condition. Then we only need
-        %       M_ds >= M_us
-        % NOTE: this only works with only initial and boundary conditions
-        % input: 
-        %       max_length: the maximal length of the queue in meters
-        %       from the downstream
-        % output:
-        %       the constraint matrix
-        %       list[:,1:end-1] * x >= list[:,end]
         function [list] = setHardQueueLimit(self, max_length)
+            % This function constructs the hard constraitns for queue limit.
+            % Intuition:
+            %   - The point (t,x) is congested if the solution comes from the downstream.
+            %   - By triangular FD, the point will be only in the charicateristic domain M_us of upstream conditions.
+            %     Similarly, it locates only in the charactheristic domain M_ds of one downstream condition.
+            %   - Then only need M_ds >= M_us to guarantee (t,x) is never congested
+            %   - This only works with only initial and boundary conditions
+            % input:
+            %       max_length: the maximal length of the queue in meters
+            %       from the downstream
+            % output:
+            %       the constraint matrix
+            %       list[:,1:end-1] * x >= list[:,end]
             
             len_link = self.ds_pos_m - self.us_pos_m;
             
@@ -3045,25 +2621,37 @@ classdef setIneqConstraints
 
         
         %==========================================================================
-        % Function to create soft constraints for queue limits
-        % For any point (x,t), define vehicle label L, and slack variable s
-        % constraints: L <= M^{us(+initial_free), ds(+initial_cong) }; 
-        %              L = M^us - s; s>=0; 
-        % objective: min s
-        % input:
-        % output: 
-        %       list: the constraint matrix; 
-        %       list[:,1:end-1] * x >= list[:,end]
-        %       weight: the weight for q1, this is used for constructing
-        %           the entropy condition
-        function [list, weight] = setSoftQueueLimit(self)
+        function [list, weight, scale] = setSoftQueueLimit(self)
+            % This function constructs soft constraints for queue limits
+            %   - No internal or density conditions. 
+            %   - For any point (x,t), define vehicle label L, and slack variable s
+            %     constraints: L <= M^{us(+initial_free), ds(+initial_cong) };
+            %              L = M^us - s; s>=0;
+            % objective: min s
+            % output:
+            %       list: the constraint matrix;
+            %       list[:,1:end-1] * x >= list[:,end]
+            %       weight: s = f(q3(j)) = f(q1(_+q2(j)), weight tracks the
+            %           implicit total weight added to q1(j) in the objective when
+            %           minimizing sum s(k). This is used for constructing the
+            %           objective function such that penalizing s wont stop
+            %           traffic from upstream freeway.
+            %       scale: Due to the introduction of queue limit point,
+            %           to get the entropy solution for q1(j), the objective must satisfy:
+            %           df/dq1(j-1) > T_(j-1)/t_(j) * df/dq1(j),
+            %           where T_j= max_coe_q1(j), t_j = min_coe_q1(j)
             
             % Each point introduces 5 inequalities
             list = zeros(self.num_soft_queue_pt*5, self.size_row);
             rows = 0;
+            
             % keep track of the weight of q1 which is in M^us
             list_us = zeros(self.num_soft_queue_pt, self.size_row);
             rows_us = 0;
+            
+            % keep tracks of the scale T_(j-1)/t_(j)
+            list_q1_scale = zeros(self.num_soft_queue_pt, self.size_row);
+            rows_q1_scale = 0;
                         
             % for each point
             for pt = 1:self.num_soft_queue_pt
@@ -3154,12 +2742,17 @@ classdef setIneqConstraints
                     rows = rows+1;
                     list(rows,:) = array;
                     
-                    % M_us - s - L >= & L - M_us + s >=0
+                    % M_us - s - L >= 0
                     array = M_us;
                     array(1, self.dv_link.queue_L(1)-1 + pt) = -1;
                     array(1, self.dv_link.queue_s(1)-1 + pt) = -1;
                     rows = rows+1;
                     list(rows,:) = array;
+                    % get the scale from this specific constraitns
+                    rows_q1_scale = rows_q1_scale+1;
+                    list_q1_scale(rows_q1_scale, :) = array;
+                    
+                    % L - M_us + s >=0
                     array = -array;
                     rows = rows+1;
                     list(rows,:) = array;
@@ -3177,8 +2770,10 @@ classdef setIneqConstraints
             % truncate matrix
             list = list(1:rows,:);
             list_us = list_us(1:rows_us,:);
+            list_q1_scale = list_q1_scale(1:rows_q1_scale, :);
             
-            % compute the sum of the weight
+            % compute the implicit total weight on q1(j) when 
+            % minimizing sum s_k
             if ~isempty(list_us)
                 weight = sum( list_us(:,...
                     self.dv_link.upstream(1):...
@@ -3188,15 +2783,501 @@ classdef setIneqConstraints
                 weight = [];
             end
             
+            % scale(j) = T_(j)/t_(j+1)
+            scale = zeros( length(self.T_us)-1 ,1);
+            if ~isempty(list_q1_scale)
+                
+                for j = 2: length(self.T_us)
+                    
+                    index = self.dv_link.upstream(1)-1 + j;
+                    % find the smallest non-zero value
+                    t_j = min( list_q1_scale( list_q1_scale(:,index)>0 ,index) );
+                    T_j_1 = self.T_us( j-1 );
+                    
+                    if ~isempty(t_j) && ~isempty(T_j_1)
+                        % if need this scale
+                        scale( index- self.dv_link.upstream(1) ) = T_j_1/t_j;
+                    else
+                        % if not additional constraints
+                        T_j = self.T_us( j );
+                        scale(index- self.dv_link.upstream(1) ) = T_j_1/T_j;
+                    end
+                end
+            else
+                scale = [];
+            end
+            
+            
         end
     
         
         
         
-        %=========================================================================
-        %Get Number Binary variables
         
+    end
+    
+    
+    methods (Access = protected)
+        
+        %==========================================================================
+        function[array] = us_con(self,t,x)
+            % This function computes the upstream value conditions at (t,x)
+            % input:
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the value of the vehicle id
+            %           using the upstream boundary conditions
+            
+            array = zeros(1,self.size_row);  %Initialize the array
+            
+            if t < self.start_time || t > self.end_time
+                array = [];
+                return
+            end
+            
+            n = sum(self.T_us_cum <= t);  % in step n interval [ , )
+            if abs(t - self.end_time) <= 1.0e-6     % the final time point
+                n = n-1;    % in the last step interval
+            end
+            
+            
+            if( (abs(x - self.us_pos_m)<0.00001) && (self.T_us_cum(n)<=t) &&...
+                (t<=self.T_us_cum(n+1)) && (n <= self.num_us_con) )
+                array(1, self.dv_link.upstream(1) : self.dv_link.upstream(1)-1 + n-1) = self.T_us(1:n-1);
+                array(1, self.dv_link.upstream(1)-1 + n) = t-self.T_us_cum(n);
+                return
+            else
+                array = []; %return a "NULL"
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function [array] = ds_con(self,t,x)
+            % This function computes the downstream value conditions at (t,x)
+            % input:
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the value of the vehicle id
+            %           using the downstream boundary conditions
+            
+            array = zeros(1,self.size_row);
+            
+            if t < self.start_time || t > self.end_time
+                array = [];
+                return
+            end
+            
+            n = sum(self.T_ds_cum <= t);  % in step n interval [ , )
+            if abs(t - self.end_time) <=  1.0e-6    % the final time point
+                n = n-1;    % in the last step interval
+            end
+            
+            if( (abs(x-self.ds_pos_m)<0.01) && (self.T_ds_cum(n) <= t) &&...
+                (t<= self.T_ds_cum(n+1)) && (n <= self.num_ds_con) )
+                array(1,self.dv_link.initial(1):...
+                        self.dv_link.initial(2) ) = -self.X_grid;   %Initial number of vehicles
+                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n-1) = self.T_ds(1:n-1);
+                array(1,self.dv_link.downstream(1)-1 + n ) = t-self.T_ds_cum(n);
+                return
+            else
+                array = [];
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function[array] = initial_con(self, b, t, x)
+            % This function computes the initial value conditions at (t,x)
+            % input:
+            %       b: the index of the initial condition this point in on.
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the value of the vehicle id
+            %           using the initial condition
+            if( (abs(t-self.t0)<0.01) &&  ( sum(self.X_grid(1:b)) <= x) &&...
+                    ( x <=sum(self.X_grid(1:b+1))) && (b <= self.num_initial_con) )
+                array = zeros(1,self.size_row);
+                array(1, self.dv_link.initial(1) : self.dv_link.initial(1)-1 + b) = -self.X_grid(1:b);
+                array(1, self.dv_link.initial(1)-1 +  b +1) = -(x-sum(self.X_grid(1:b)));
+                return
+            else
+                array = []; %Return a "NULL"
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function [array] = traj_con(self, m ,t ,x)
+            % This function computes the internal value conditions at (t,x)
+            % input:
+            %       m: the index of the internal condition this point in on.
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the value of the vehicle id
+            %           using the internal condition
+            
+            array = zeros(1,self.size_row);
+            if ( (abs(x - (self.v_meas_traj(m)*(t-self.t_min_traj(m)) + self.x_min_traj(m))) < 0.01) &&...
+                    (t>= self.t_min_traj(m)) && (t<= self.t_max_traj(m)) )
+                array(1, self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1, self.dv_link.internal_r(1)-1 + m ) = t - self.t_min_traj(m);
+                return
+            else
+                array = [];
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function [array] = dens_con(self, u ,t ,x)
+            % This function computes the density value conditions at (t,x)
+            % input:
+            %       u: the index of the density condition this point in on.
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the value of the vehicle id
+            %           using the density condition
+            % new variables x_min_u, x_max_u, t_u, u_max, m_max_vm0
+            
+            if ( (abs(t-self.t_dens(u)) < 0.0001) &&...
+                    (x>= self.x_min_dens(u)) && (x<= self.x_max_dens(u)) )
+                array = zeros(1,self.size_row);
+                array(1, self.dv_link.density_L(1)-1 + u) = 1;
+                array(1, self.dv_link.density_rho(1)-1 + u ) =...
+                    -(x - self.x_min_dens(u+1));
+                return
+            else
+                
+                array = [];
+                return
+                
+            end
+            
+        end
+        
+        
+        %==========================================================================
+        function[array] = m_us_con(self,n,t,x)
+            % This function computes the partial solution at (t,x) by the nth upstream condition
+            % input:
+            %       n: the index of upstream condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth upstream boundary condition
+            
+            array = zeros(1,self.size_row);  %Initialize the array
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            % characteristic domain
+            if((self.T_us_cum(n) + (x - self.us_pos_m)/self.v <= t) && ...
+                    (self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v >= t ) && (n<= self.num_us_con))
+                array(1, self.dv_link.upstream(1): self.dv_link.upstream(1)-1 + n-1) = self.T_us(1:n-1);
+                array(1, self.dv_link.upstream(1)-1 + n) = t - (x-self.us_pos_m) / self.v - self.T_us_cum(n);
+                return
+                
+            % Fan domain
+            elseif((self.T_us_cum(n+1) + (x-self.us_pos_m)/self.v < t) && (n <= self.num_us_con))
+                array(1,self.dv_link.upstream(1): self.dv_link.upstream(1)-1 + n) = self.T_us(1:n);
+                array(1,self.size_row) = -self.k_c*self.v * (t - self.T_us_cum(n+1) - (x-self.us_pos_m)/self.v);
+                return
+                
+            else
+                array = [];     %return a "null"
+                return
+            end
+            
+        end
+        
+        
+        %==========================================================================
+        function [array] = m_ds_con(self,n,t,x)
+            % This function computes the partial solution at (t,x) by the nth downstream condition
+            % input:
+            %       n: the index of downstream condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth downstream boundary condition
+            
+            array = zeros(1,self.size_row);
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            % in characteristic domain
+            if( (self.T_ds_cum(n) + (x - self.ds_pos_m)/self.w <= t) &&...
+                    (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w >= t )&& (n <= self.num_ds_con))
+                array(1,self.dv_link.initial(1):...
+                        self.dv_link.initial(2)) = -self.X_grid; %initial number of vehicles
+                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n-1) = self.T_ds(1:n-1);
+                array(1,self.dv_link.downstream(1)-1 + n) = t - (x-self.ds_pos_m)/self.w - self.T_ds_cum(n);
+                array(1,self.size_row) = self.k_m*(x-self.ds_pos_m);
+                return
+                
+            % in Fan domain
+            elseif( (self.T_ds_cum(n+1) + (x-self.ds_pos_m)/self.w < t) && (n <= self.num_ds_con))
+                array(1,self.dv_link.initial(1):...
+                        self.dv_link.initial(2)) = -self.X_grid; %initial number of vehicles
+                array(1,self.dv_link.downstream(1):self.dv_link.downstream(1)-1 + n) = self.T_ds(1:n);
+                array(1,self.size_row) = -self.k_c*self.v * (t - self.T_ds_cum(n+1) - (x-self.ds_pos_m)/(self.v));
+                return
+            else
+                array = []; %return a "null"
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function [array] = m_traj_con(self, m, t, x)
+            % This function computes the partial solution at (t,x) by the mth internal traj condition
+            % input:
+            %       m: the index of internal condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth internal boundary condition
+            
+            array = zeros(1,self.size_row);
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            if( (x >= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
+                ( x >= self.x_max_traj(m) + self.v*(t-self.t_max_traj(m))) &&...
+                (x <= self.x_min_traj(m) + self.v*(t-self.t_min_traj(m))) )
+                array(1,self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1,self.dv_link.internal_r(1)-1 + m) =...
+                    t - (x - self.x_min_traj(m) - self.v_meas_traj(m)*(t - self.t_min_traj(m))) / (self.v - self.v_meas_traj(m)) - self.t_min_traj(m) ;
+                return
+            end
+            
+            if ( (x<= self.x_min_traj(m) + self.v_meas_traj(m)*(t-self.t_min_traj(m))) &&...
+                 ( x <= self.x_max_traj(m) + self.w*(t-self.t_max_traj(m))) &&...
+                 (x >= self.x_min_traj(m) + self.w*(t-self.t_min_traj(m))) )
+                array(1,self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1,self.dv_link.internal_r(1)-1 + m) =...
+                    t - (x - self.x_min_traj(m) - self.v_meas_traj(m)*(t-self.t_min_traj(m)))/(self.w - self.v_meas_traj(m)) - self.t_min_traj(m);
+                array(1,self.size_row) = -self.k_c*(self.v-self.w)*(x - self.x_min_traj(m) - self.v_meas_traj(m)*(t-self.t_min_traj(m)))/(self.w - self.v_meas_traj(m)) ;
+                return
+            end
+            
+            if( (x < self.x_max_traj(m) + self.v*(t - self.t_max_traj(m))) &&...
+                    ( x > self.x_max_traj(m) + self.w*(t - self.t_max_traj(m))) )
+                array(1, self.dv_link.internal_L(1)-1 + m) = 1;
+                array(1, self.dv_link.internal_r(1)-1 + m) = self.t_max_traj(m) - self.t_min_traj(m);
+                array(1, self.size_row) = -(t-self.t_max_traj(m))*self.k_c*(self.v - (x-self.x_max_traj(m))/(t-self.t_max_traj(m)+0.000001));
+                return
+            else
+                array = []; %Return a "NULL"
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function [array] = m_initial_con_ff(self,b,t,x)
+            % This function computes the partial solution at (t,x) by the bth initial condition for rho <= rho_c
+            % input:
+            %       b: the index of internal condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth internal boundary condition
+            
+            array = zeros(1,self.size_row);
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            % characteristic domain
+            if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.v <= x) &&...
+                    (x <=self.us_pos_m+ sum(self.X_grid(1:b)) + t*self.v) &&...
+                    ( b <= self.num_initial_con))
+                array(1, self.dv_link.initial(1) : ...
+                         self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
+                
+                array(1,self.dv_link.initial(1)-1 + b) = ...
+                    (t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
+                return
+            end
+            
+            % Fan domain
+            if ( (self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
+                    (x < self.us_pos_m+ sum(self.X_grid(1:b-1)) + t*self.v) &&...
+                    (b <= self.num_initial_con))
+                array(1, self.dv_link.initial(1): ...
+                         self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
+                
+                array(1,self.size_row) = -self.k_c*(t*self.v - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
+                return
+            else
+                array = []; %Return a "NULL"
+                return
+            end
+        end
+        
+        
+        %==========================================================================
+        function [array] = m_initial_con_cf(self,b,t,x)
+            % This function computes the partial solution at (t,x) by the bth initial condition for rho > rho_c
+            % input:
+            %       b: the index of initial condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth initial boundary condition
+            
+            array = zeros(1,self.size_row);
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            % characteristic domain
+            if ( (self.us_pos_m + sum(self.X_grid(1:b-1)) + t*self.w <= x) &&...
+                    (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w) &&...
+                    ( b <= self.num_initial_con))
+                
+                array(1,self.dv_link.initial(1) :...
+                        self.dv_link.initial(1)-1 + b - 1 ) = -self.X_grid(1:b-1);
+                array(1,self.dv_link.initial(1)-1 + b) = ...
+                    (t*self.w - x + sum(self.X_grid(1:b-1)) + self.us_pos_m);
+                array(1,self.size_row) = self.k_m*t*self.w;
+                return
+            end
+            
+            % Fan domain
+            if ( (self.us_pos_m + sum(self.X_grid(1:b)) + t*self.w < x) &&...
+                    (x <= self.us_pos_m + sum(self.X_grid(1:b)) + t*self.v) &&...
+                    (b <= self.num_initial_con))
+                
+                array(1,self.dv_link.initial(1):...
+                    self.dv_link.initial(1)-1 + b-1) = -self.X_grid(1:b-1);
+                array(1,self.dv_link.initial(1)-1 + b) = -self.X_grid(b);
+                array(1,self.size_row) = -(self.k_c*(t*self.w - x + sum(self.X_grid(1:b)) + self.us_pos_m) - self.k_m*t*self.w);
+                return
+            else
+                array = []; %Return a "NULL" value
+                return
+            end
+        end
+        
+        
+        %==========================================================================        
+        function [array] = m_dens_con_ff(self,u,t,x)
+            % This function computes the partial solution at (t,x) by the uth density condition for rho <= rho_c
+            % input:
+            %       u: the index of density condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth density boundary condition
+            
+            array = zeros(1,self.size_row);
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.v <= x) &&...
+                 (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
+                 (t>=self.t_dens(u)) && ( u <= self.num_density_con))
+                
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
+                array(1,self.dv_link.density_rho(1)-1 + u) =...
+                    (t-self.t_dens(u))*self.v - x + self.x_min_dens(u);
+                return
+            end
+            
+            if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
+                 (x <= self.x_min_dens(u) + (t-self.t_dens(u))*self.v) &&...
+                 (t>=self.t_dens(u)) && (u <= self.num_density_con))
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
+                array(1,self.size_row) = -self.k_c*((t-self.t_dens(u))*self.v - x + self.x_min_dens(u));
+                return
+            else
+                
+                array = []; %Return a "NULL"
+                return
+                
+            end
+            
+        end
+      
+        
+        %==========================================================================        
+        function [array] = m_dens_con_cf(self,u,t,x)
+            % This function computes the partial solution at (t,x) by the uth density condition for rho > rho_c
+            % input:
+            %       u: the index of density condition
+            %       t,x: the time, location of the point
+            % output:
+            %       array: an array which compute the vehicle id at (t,x) using
+            %           the nth density boundary condition
+            
+            array = zeros(1,self.size_row);
+            
+            % make sure it is within the time space domain
+            if t < self.start_time || t > self.end_time || x < self.us_pos_m || x > self.ds_pos_m
+                array = [];
+                return
+            end
+            
+            if ( (self.x_min_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
+                 (x <=self.x_max_dens(u) + (t-self.t_dens(u))*self.w) &&...
+                 (t>=self.t_dens(u)) && ( u <= self.num_density_con))
+                
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
+                array(1,self.dv_link.density_rho(1)-1 + u) =...
+                        (t-self.t_dens(u))*self.w - x + self.x_min_dens(u);
+                array(1,self.size_row) = self.k_m*(t-self.t_dens(u))*self.w;
+                return
+            end
+            
+            if ( (self.x_max_dens(u) + (t-self.t_dens(u))*self.w <= x) &&...
+                 (x <= self.x_max_dens(u) + (t-self.t_dens(u))*self.v) &&...
+                 (t>=self.t_dens(u)) && (u <= self.num_density_con))
+                
+                array(1,self.dv_link.density_L(1)-1 + u ) = 1;
+                array(1,self.size_row) = -(self.k_c*((t-self.t_dens(u))*self.w - x +...
+                                self.x_max_dens(u)) - self.k_m*(t-self.t_dens(u))*self.w);
+                return
+            else
+                array = []; %Return a "NULL"
+                return
+            end
+            
+        end
+        
+        
+        %=========================================================================
         function [nb_min,nb_max, nb_min_u, nb_max_u] = getBinaryvar(self)
+            % This function computes the number of boolean variabels needed
             
             nb_min = zeros(1,self.num_internal_con);
             nb_max = zeros(1,self.num_internal_con);
@@ -3618,11 +3699,10 @@ classdef setIneqConstraints
       
         end
         
-
         
         %==========================================================================
-        % Method to substract to arrays with a "null" condition
         function [output] = subtractArray(~,value1,value2)
+            % A utility function which substract two arrays with a "null" condition
             if ( (~isempty(value1)) && (~isempty(value2)) )
                 output = value1-value2;
             else
@@ -3631,29 +3711,27 @@ classdef setIneqConstraints
         end
         
         
-        
-        %===============================================================
-        % Utility function
-        % This function is used to group the same element into blocks
-        % input:
-        %       k_ori: a row vector that we would like to group same elements into
-        %              a group.
-        %       minlength: the minimal length in each group, use inf to disable
-        %              this feature.
-        % output:
-        %       indicedGroupValue: [starting index, end index, block value]
-        % example:
-        % k=[1 1 1 1 1 1 1 2 2 2 NaN NaN NaN NaN 1 1 1 1 1 2]
-        % indicedGroupValue = groupSameElement(k, 5)
-        % OUTPUT:
-        % indicedGroupValue =
-        % [1 5 1;
-        %  6 7 1;
-        %  8 10 2;
-        %  11 14 NaN;
-        %  15 19 1
-        %  20 20 2];
+        %===============================================================----------
         function indicedGroupValue = groupSameElement(~, k_ori,minlength)
+            % A utility function used to group the same element in array k_ori into blocks
+            % input:
+            %       k_ori: a row vector that we would like to group same elements into
+            %              a group.
+            %       minlength: the minimal length in each group, use inf to disable
+            %              this feature.
+            % output:
+            %       indicedGroupValue: [starting index, end index, block value]
+            % example:
+            % k=[1 1 1 1 1 1 1 2 2 2 NaN NaN NaN NaN 1 1 1 1 1 2]
+            % indicedGroupValue = groupSameElement(k, 5)
+            % OUTPUT:
+            % indicedGroupValue =
+            % [1 5 1;
+            %  6 7 1;
+            %  8 10 2;
+            %  11 14 NaN;
+            %  15 19 1
+            %  20 20 2];
             
             k_vec = k_ori;
             
@@ -3723,8 +3801,6 @@ classdef setIneqConstraints
     
         end
     
-        
-        
         
     end
 end

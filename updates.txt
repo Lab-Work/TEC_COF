@@ -63,24 +63,31 @@ Details:
 34. Wrote a replay function in AIMSUN to see the signal control.
 35. Found a bug in AIMSUN. The detector should be too close to the entrance and exit, otherwise the vehicle appears or disappears without passing the detector. This gives incorrect count.
 
-Todo:
+- Feb 16
 - auto logging with time stamps
 - Compare q1_ds + q2_ds with q3_us; may need to only set the measurement data constraints for q1 and q2.
-- Check how much error AIMSUN detector has. Or how much error is in the fundamental diagram. Can we improve the result using a more accurate FD
-- The freeflow speed does not make sense. Need to recalibrate the FD.
+
 
 
 
 Issues:
-- The upper and lower bound for internal and density decision variables are set as -inf and inf. To investigate a little bit more to learn a realistic range.
-- We have not defined an offramp actuator yet. We use a green red cycle ramp meter for onramp control.
 - In find slope functions, if the interval is too small, the functions just return NaN which will introduce an error. Fix by computing an approximated slope.
-- The queue threshold only works for problems without internal and density conditions. Otherwise we have to introduce boolean variables.
-- The soft queue limit method holds only if there is not internal and density conditions. Otherwise, even if the point is not in the upstream influence domain, it still could be free flow since it might be in the domain of internal or density conditions.
-- In coordination with AIMSUN, need to put a break point at the startcontrol function.
+
 - The soft queue limit only applies in the current scenario, where a soft queue limit is only applied in the downstream link.
 - The applyEntropy only supports on ramp junctions for now.
 - currently plotting the hard queue and soft queue for visualization only works for the merge and onrampjunc.
+
+
+Track:
+- No off-ramp controller has been defined yet
+- The upper and lower bound for internal and density decision variables are set as -inf and inf. Put a physical bound may produce solution using less computation time.
+
+
+
+
+Potential improvements in future:
+- Check the measurement error form AIMSUN detector and recalibrate the fundamental diagram. 
+- The penalty on the congestion in the current version does not support internal and density conditions. Otherwise, boolean variables must be introduced.
 
 
 

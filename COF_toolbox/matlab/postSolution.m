@@ -1,84 +1,55 @@
-% Yanning Li, Sep 02, 2015
-% This class construct a the post solution object
-% It uses the Berkeley toolbox to compute the Moskowitz function and
-% visualize the result. It also has functions which can check if the
-% solution is entropic and update the boundary discretization grid.
 
 
 classdef postSolution < handle
+    % This class analyzes and visualizes the solution from CP
+    % Yanning Li, Feb 2016
+    %   - It integrates the Berkeley HJ PDE solver to solve and visualize
+    %     the traffic states on each link.
+    %   - It analyzes if the internal boundary flow is admissible, and
+    %     updates the boundary grid by locating the wavefront intersection.
     
-    properties
+    properties (Access = protected)
         
-        % column vector, solution obtained from the cplex solver
-        x;  
-        
-        % save a copy of the index of decision variables
-        dv_index;
-        
-        % save a copy of the network structure
-        % NOTE: this is not good if we have a large IC BC data set
-        net;
+        x;  % column vector, solution obtained from the CP
+        dv_index;   % save a copy of the index of decision variables from CP
+        net;        % save a copy of the network object
 
-        % start time of the simulated period, which should be 0
-        t_start_sim;
+        t_start_sim;    % start time of the simulated period, should be 0
+        t_end_sim;  % end time of the simulated period
+        
+        fd; % struct, .(linkStr), fundamental diagram
+        dx_res; % meters, space mesh resolution for single link HJ PDE solver
+        dt_res; % seconds, time mesh resolution for single link HJ PDE solver
+        x_mesh_m; % struct, .(linkStr), space mesh for single link HJ PDE solver
+        t_mesh_s; % struct, .(linkStr), time mesh for single link HJ PDE solver
+        k;  % struct, .(linkStr), contains the density solution for each link
+        N;  % struct, .(linkStr), contains the car ID solution for each link
+        
+        t_ref;  % the reference point for sampling M.
+                %  Note, this is used for determing which boundary conditions 
+                %  we should use to compute the sending and receiving function.
+        
+        hard_queue_limit;   % struct, .(linkStr): in meters from downstream boudnary; just for visualization
+        soft_queue_limit;   % struct, .(linkStr): in meters from downstream boudnary; just for visualization
 
-        % end time of the simulated period, which should be dt_past+dt_predict
-        t_end_sim;
-        
-        % struct, .(linkStr), contains the density for each link
-        k;  
-        
-        % struct, .(linkStr), contains the car ID for each link
-        N;
-        
-        % struct, .(linkStr), discretization in space in meters
-        x_mesh_m; 
-        
-        % the mesh grid is same for all links; different from the boundary
-        % discretization.
-        t_mesh_s; 
-        
-        % struct, .(linkStr), fundamental diagram
-        fd;
-        
-        % the resolution we would like to plot in the visualization (mesh)
-        dx_res;
-        dt_res;
-        
-        
-        % the reference point for sampling M. Note, this is used for
-        % determing which boundary conditions we should use to compute the
-        % sending and receiving function.
-        t_ref;
-        
-        % the hard queue limit on each link; just used for visualization
-        % struct, .(linkStr): in meters from downstream
-        hard_queue_limit;
-        
-        % the soft queue limit on each link
-        soft_queue_limit;
-
-        % set the maximal seartch depth of the recursive function for searching
-        % the intersections
-        max_search_depth;
+        max_search_depth;   % the maximal seartch depth of the recursive searching the shockwave intersections
         
     end
     
-    methods
+    methods (Access = public)
         
         %===============================================================
-        % compute the Moskowitz function
-        % input:
-        %       x: float, dv_index_max x 1, solution from cplex
-        %       net: the network object constructed by initNetwork
-        %       dv_index: the decision varialbe struct
-        %       end_time: end time of the simulation
-        %       dx_res/dt_res: float, resolution for visualization
-        %       hard_queue_limit: struct, .(linkStr) limit of queue in meters
-        %       soft_queue_limit: struct, .(linkStr) limit of queue in meters
         function self=postSolution(x, net, dv_index, end_time, dx_res, dt_res, ...
                         hard_queue_limit, soft_queue_limit)
-            
+           % constructs a postSolution object
+           % input:
+           %       x: float, dv_index_max x 1, solution from cplex
+           %       net: the network object constructed by initNetwork
+           %       dv_index: the decision varialbe struct
+           %       end_time: end time of the simulation
+           %       dx_res/dt_res: float, resolution for visualization
+           %       hard_queue_limit: struct, .(linkStr) limit of queue in meters
+           %       soft_queue_limit: struct, .(linkStr) limit of queue in meters
             self.x = x;
             self.dv_index = dv_index;
             self.net = net;
@@ -97,11 +68,8 @@ classdef postSolution < handle
 
 
         %===============================================================
-        % This function estimate the states of traffic given the resoltuion dt_res and dx_res
-        % This function needs to be called only when we would like to have a high resolution 
-        % estimation of the traffic condition and want to plot the time-space diagram.
         function estimateState(self)
-
+            % This function uses Berkeley HJ PDE solver to compute the traffic states on a single link
             % solve each link
             for link = self.net.link_labels'
                 
@@ -184,10 +152,10 @@ classdef postSolution < handle
         
         
         %===============================================================
-        % plot the time-space diagram for the link
-        % input:
-        %       links: a column vector of link labels that we want to plot
         function plotLinks(self, links)
+            % Plot the density estimate for links. estimateState() function must be called first.
+            % input:
+            %       links: a column vector of link labels that we want to plot
             
             if strcmp(links,'all')
                 links = self.net.link_labels;
@@ -245,16 +213,16 @@ classdef postSolution < handle
         
         
         %===============================================================
-        % plot the time space diagram for the links at this junction
-        % connection: this function concatenate two links 
-        % merge: this function plots a 1x2 subplots: 1->3, 2->3
-        % diverge: this function plots a 1x2 subplots: 1->2, 1->3
-        % input:
-        %       juncs: the column vector of junction labels we want to
-        %           plot, each junction will be plot in one seperate figure
-        %           or 'all' plots all junctions
-        %       title_str: string with some info to put in the title
         function plotJuncs(self, juncs, title_str)
+            % plot the density estimates for the links connected to this junction
+            %   - connection: plots an density map with two links concatenated
+            %   - merge: plots a 1x2 subplots each concatenates two links: 1->3, 2->3
+            %   - diverge: plots a 1x2 subplots each concatenates two links: 1->2, 1->3
+            % input:
+            %       juncs: the column vector of junction labels we want to
+            %           plot, each junction will be plot in one seperate figure
+            %           or 'all' plots all junctions
+            %       title_str: string with some info to put in the title
             
             if strcmp(juncs,'all')
                 juncs = self.net.junc_labels;
@@ -514,31 +482,26 @@ classdef postSolution < handle
                 
             end
             
-        end     %end function
+        end     
         
         
         %===============================================================
-        % Analytically check if the solution is entropy solution, that is,
-        % the throughput flow is maximized at all time steps.
-        % NOTE: This function is meant to find the nonentropic solution due
-        % to the boundary discretization. If the entropic objective is not
-        % added to the objective function, then the optimal solution may be
-        % non-entropic at some steps. In this case, this function will
-        % simply return a warning.
-        % Intuition: using Moskowitz function, we can analytically compute
-        % the sending and receiving function at each boundary
-        % discretization point, then compare if we hold back any flow
-        % input: 
-        %       net: the network object 
-        %       entropy_tol: cars, the tolerance for entropy, for instance, 
-        %           if the error to entropic solution is only 1 car, we
-        %           consider this solution as an entropic solution and stop
-        %           updating the discretization grid.
-        % output: 
-        %       TF: true or false, this solution is an entropic solution?
-        %       steps: struct, .(juncStr), the id of the first non entropic
-        %           step
         function [TF, steps] = checkEntropy(self, entropyTol)
+            % Check if the solution is admissible.
+            %   - uses entropicSolutionAtJunc to compute the admissible
+            %       solution
+            %   - uses sending and receiving functions to check if the flow
+            %       is maximized while minimizing the priority ratio.
+            % input: 
+            %       net: the network object 
+            %       entropy_tol: cars, the tolerance for entropy, for instance, 
+            %           if the error to entropic solution is only 1 car, we
+            %           consider this solution as an entropic solution and stop
+            %           updating the discretization grid.
+            % output: 
+            %       TF: true or false, this solution is an entropic solution?
+            %       steps: struct, .(juncStr), the id of the first non entropic
+            %           step
                         
             TF = true;
             steps = struct;
@@ -892,21 +855,22 @@ classdef postSolution < handle
             
             % steps = unique(steps);
             
-        end % end function
+        end 
         
         
         %===============================================================
-        % analytically update the discretization by identify the 
-        % intersection point of the shock waves at the boundaries. Those
-        % points will be added to the discretization grid to eliminate the
-        % discretization error.
-        % input: 
-        %       steps: struct, .(juncStr), the first non-entropic step. 
-        %           Note, the update has to be done iteratively, 
-        %           earlier steps first
-        % output: 
-        %       T_new_cum: struct, .(juncStr). The updated time grid. 
         function T_new_grid = updateTimeDiscretization(self, steps)
+            % Updates the the time grid by searching the intersection points
+            %   - This function uses the old versions:
+            %       searchBoundaryIntersection(), findBoundaryFuncSlope(),
+            %   - Find the frontwave intersection point to eliminate the
+            %       discretization error.
+            % input: 
+            %       steps: struct, .(juncStr), the first non-entropic step. 
+            %           Note, the update has to be done iteratively, 
+            %           earlier steps first
+            % output: 
+            %       T_new_cum: struct, .(juncStr). The updated time grid. 
                         
             % recursively search uses a binary cut method to locate the
             % intersection point. 
@@ -1202,28 +1166,144 @@ classdef postSolution < handle
         end
         
         
+        %===============================================================
+        function indicedGroupValue = groupSameElement(~, k_ori,minlength)
+            % This function is used to group the same consecutive elements in an array into blocks
+            % input:
+            %       k_ori: a row vector that we would like to group same elements into
+            %              a group.
+            %       minlength: the minimal length in each group, use inf to disable
+            %              this feature.
+            % output:
+            %       indicedGroupValue: [starting index, end index, block value]
+            % example:
+            % k=[1 1 1 1 1 1 1 2 2 2 NaN NaN NaN NaN 1 1 1 1 1 2]
+            % indicedGroupValue = groupSameElement(k, 5)
+            % OUTPUT:
+            % indicedGroupValue =
+            % [1 5 1;
+            %  6 7 1;
+            %  8 10 2;
+            %  11 14 NaN;
+            %  15 19 1
+            %  20 20 2];
+            
+            k_vec = k_ori;
+            
+            if (~isrow(k_vec) && ~iscolumn(k_vec) )
+                error('Check k dimension\n');
+            elseif (iscolumn(k_vec))
+                k_vec = k_vec';
+            end
+            
+            if (~all(isnan(k_vec)==0))
+                randvalue = randn*10;
+                while ~all(k_vec~=randvalue)
+                    randvalue = randn*10;
+                end
+                k_vec(isnan(k_vec)) = randvalue;
+                randvalue = floor(randvalue*100000)/100000;
+            end
+            
+            %eliminate possible numerical error
+            k_tmp = round(k_vec*100000)/100000;
+            originalSize = size(k_tmp,2);
+            
+            i = 1;
+            indicedGroupValue = [0 0 0];    %initial offset
+            while (1)
+                
+                i=i+1;
+                [values, ivalues, ik_tmp] = unique(k_tmp,'stable');
+                
+                % set the starting indice
+                indicedGroupValue(i,1) = indicedGroupValue(i-1,2)+1;
+                % set the value
+                indicedGroupValue(i,3) = values(1,1);
+                
+                if (size(values,2) > 1) %not last
+                    if (ivalues(2,1) <= minlength)
+                        % in case that we prefer a minlength: e.g. each group
+                        % aggregate at most 5 elements.
+                        indicedGroupValue(i,2) = ivalues(2,1)-1+ indicedGroupValue(i-1,2);
+                        k_tmp(:,1:ivalues(2,1)-1) = [];
+                    elseif (ivalues(2,1) > minlength)
+                        indicedGroupValue(i,2) = minlength + indicedGroupValue(i-1,2);
+                        % remove those processed elements
+                        k_tmp(:,1:minlength) = [];
+                    end
+                    
+                    % is the last element, and smaller than minlength
+                elseif(originalSize-indicedGroupValue(i,1) <= minlength)
+                    indicedGroupValue(i,2) = originalSize;
+                    break;
+                    
+                else
+                    indicedGroupValue(i,2) = minlength + indicedGroupValue(i-1,2);
+                    % remove those processed elements
+                    k_tmp(:,1:minlength) = [];
+                end
+                
+            end
+            
+            % remove the initial offset (first row)
+            indicedGroupValue(1,:) = [];
+            
+            if (~all(isnan(k_ori)==0))
+                indicedGroupValue(indicedGroupValue(:,3)==randvalue,3) = NaN;
+            end
+            
+    
+        end
+        
         
         %===============================================================
-        % This is a recursive function aiming at finding the corner point
-        % of a piecewise linear nondecreasing function in an interval
-        % In principle, you only need the time interval and the function f
-        % for computing the values; the rest of the input parameters are
-        % just to avoid recomputing some values and save time.
-        % Note: for computational efficiency, this code may not work for a
-        % piece wise line with too many corners and certain properties. But
-        % this is very unlikely to happen in one sigle time step.
-        % input: 
-        %        t_interval, float vector, [t_start; t_end]
-        %        M_interval, float vector, [M_start; M_end], NaN if not
-        %           computed
-        %        link, int, the link id which defines f
-        %        bound, 'upstream', 'downstream', which defines f
-        %        searchDepth, int, keeps track of the search depth
-        %        dr_tol, float, the minimal resolution we will investigate
-        % output: found time points 1 x n column
+        function abs_e = getAbsError(~, true_sol, approx_sol)
+            % This function computes the absolute difference between two solutions.
+            % input:
+            %       true_sol: struct, .T_cum, .q; the true solution
+            %       approx_sol: struct, .T_cum, .q: the true solution
+            % output:
+            %       abs_e: the absolute error between two solutions
+            
+            % get combined time grid
+            T_grid =[0; unique([true_sol.T_cum; approx_sol.T_cum])];
+            
+            % compute the abs difference
+            abs_e = 0;
+            for pt = 2:length(T_grid)
+                
+                true_flow = true_sol.q( find( true_sol.T_cum>= T_grid(pt),1 ) );
+                approx_flow = approx_sol.q( find( approx_sol.T_cum>= T_grid(pt),1 ) );
+                abs_e = abs_e + abs( true_flow - approx_flow )*...
+                                        (T_grid(pt) - T_grid(pt-1) );
+                
+            end
+            
+            
+        end
+        
+        
+    end
+    
+    methods (Access = protected)
+
+        %===============================================================
         function t_found = searchBoundaryIntersection(self, t_interval, M_interval, slope, ...
                                               link, bound, searchDepth, dt_tol)
-            
+            % Find the intersection points of the sending and receiving function at the boundary
+            %   - this is an older version. The more general function is searchShocksOnLine()                              
+            %   - Do NOT call externally.
+            % input: 
+            %        t_interval, float vector, [t_start; t_end]
+            %        M_interval, float vector, [M_start; M_end], NaN if not
+            %           computed
+            %        link, int, the link id which defines f
+            %        bound, 'upstream', 'downstream', which defines f
+            %        searchDepth, int, keeps track of the search depth
+            %        dr_tol, float, the minimal resolution we will investigate
+            % output: found time points 1 x n column
+        
             t_found = [];                  
             % if search depth is greater than 3, 
             if searchDepth > self.max_search_depth
@@ -1344,21 +1424,20 @@ classdef postSolution < handle
         
         
         %===============================================================
-        % This is a recursive function that finds the slope at the boundary
-        % point of a piecewise linear line. A utility function for finding
-        % the intersections
-        % input: 
-        %        t_interval, float vector, [t_start; t_end]
-        %        M_interval, float vector, [M_start; M_end], NaN if not
-        %           computed
-        %        slope_side, 'left','right', which side slope
-        %        link, int, the link id which defines f
-        %        bound, 'upstream', 'downstream', which defines f
-        %        dr_tol, float, the minimal resolution we will investigate
-        % output: found time points 1 x n column
         function slope = findBoundaryFuncSlope(self, t_interval, M_interval, slope_side, ...
                                    link, bound, dt_tol)
-                              
+            % Find the left or right slope at the boundary point of a piecewise linear line
+            %   - Do NOT call externally
+            % input: 
+            %        t_interval, float vector, [t_start; t_end]
+            %        M_interval, float vector, [M_start; M_end], NaN if not
+            %           computed
+            %        slope_side, 'left','right', which side slope
+            %        link, int, the link id which defines f
+            %        bound, 'upstream', 'downstream', which defines f
+            %        dr_tol, float, the minimal resolution we will investigate
+            % output: found time points 1 x n column
+                               
             % if the time interval is too small, than stop computing slope
             % since this may give large numerical error
             if t_interval(2) - t_interval(1) <= dt_tol
@@ -1416,15 +1495,14 @@ classdef postSolution < handle
         
         
         %===============================================================
-        % This function tells whether three points are on the same straight
-        % line
-        % input:
-        %       x: 3x1 vector, float
-        %       y: 3x1 vector, float
-        % output:
-        %       TF: true if three points on one straight line with small
-        %           tolerance; otherwise false
         function TF = onStraightLine(~, x, y)
+            % This function tells whether three points are on the same straight line
+            % input:
+            %       x: 3x1 vector, float
+            %       y: 3x1 vector, float
+            % output:
+            %       TF: true if three points on one straight line with small
+            %           tolerance; otherwise false
             
             % if a horizontal line
             if abs(x(3)-x(2)) <= 1.0e-10 && abs(x(2)-x(1)) <= 1.0e-6
@@ -1449,21 +1527,20 @@ classdef postSolution < handle
         end
         
         
+        
         %===============================================================
-        % sample points at boundaries at a junction
-        % This function basically samples the specified point at all links,
-        % and then compute the entropic value based on the sending and
-        % receiving function.
-        % Note the returned value is the vehicle id with reference to the
-        % time point self.t_ref
-        % input: 
-        %        t_sample: float, the time point to be sampled
-        %        junc: the label of the junction to be sampled
-        % output: 
-        %       d_M: for connection, float, the entropic car ID at t_sample
-        %            for merge/diverge, 2x1 float, the entropic car ID at
-        %            two incoming/outgoing links
         function d_M = entropicSolutionAtJunc(self, t_sample, junc)
+            % This function computes the admissible solution between the self.t_ref and t_sample
+            %   - it samples the sending and receiving function at all links,
+            %   - then it computes the admissible solution
+            %   - do NOT use externally
+            % input: 
+            %        t_sample: float, the time point to be sampled
+            %        junc: the label of the junction to be sampled
+            % output: 
+            %       d_M: for connection, float, the entropic car ID at t_sample
+            %            for merge/diverge, 2x1 float, the entropic car ID at
+            %            two incoming/outgoing links, with respect to self.t_ref
             
             % t_ref is the reference point where M = 0
             if t_sample == self.t_ref
@@ -1621,16 +1698,17 @@ classdef postSolution < handle
         end
         
         
+        
         %===============================================================
-        % This function gives the amount of vehicles that can be sent
-        % at the step between self.t_ref to t_sample. 
-        % The closest boundary condition (solution from x) was removed 
-        % since it may not be entropic.
-        % input: 
-        %        t_sample: float, the boundary time to be sampled
-        %        link: int, the link ID to be sampled
-        % output: d_M: the amount of vehicles that can be sent
         function d_M = sendingFuncAtLink(self, t_sample, link)
+            % This function cmoputes the amount of vehicle that can be sent on link between time self.t_ref and t_sample
+            %   - The closest boundary condition (solution from x) was removed 
+            %       since it may not be entropic.
+            %   - Do NOT call externally.
+            % input: 
+            %        t_sample: float, the boundary time to be sampled
+            %        link: int, the link ID to be sampled
+            % output: d_M: the amount of vehicles that can be sent
             
             % since t_ref is the reference point, so simply 0
             if t_sample == self.t_ref
@@ -1834,15 +1912,15 @@ classdef postSolution < handle
         
         
         %===============================================================
-        % This function gives the amount of vehicles that can be sent
-        % at the step between self.t_ref to t_sample. 
-        % The closest boundary condition (solution from x) was removed 
-        % since it may not be entropic.
-        % input: 
-        %        t_sample: float, the boundary time to be sampled
-        %        link: int, the link ID to be sampled
-        % output: d_M, the amount of vehicles that can be received
         function d_M = receivingFuncAtLink(self, t_sample, link)
+            % This function cmoputes the amount of vehicle that can be received on link between time self.t_ref and t_sample
+            %   - The closest boundary condition (solution from x) was removed 
+            %       since it may not be entropic.
+            %   - Do NOT call externally.
+            % input: 
+            %        t_sample: float, the boundary time to be sampled
+            %        link: int, the link ID to be sampled
+            % output: d_M, the amount of vehicles that can be received
             
             % since t_ref is the reference point, so simply 0
             if t_sample == self.t_ref
@@ -2044,18 +2122,16 @@ classdef postSolution < handle
         
         
         
-
         %===============================================================
-        % This function samples a point (t,x) on the link with M=0 at the 
-        % upstream bound and starting time.
-        % input:
-        %       link: the link id to be sampled
-        %       time: column vector, the time of the sampled points
-        %       position: column, the position of the point in meters
-        % output:
-        %       M: the absolute vehicle id at the position with M=0 at left bottom
         function M = absVehID(self, link, times, positions)
-
+            % This function computes the Moskowitz solution at (t,x) given initial, upstream and downstream boudnary conditions.
+            % input:
+            %       link: the link id to be sampled
+            %       time: column vector, the time of the sampled points
+            %       position: column, the position of the point in meters
+            % output:
+            %       M: the absolute vehicle id at the position with M=0 at left bottom
+            
             % it must be points
             if length(times) ~= length(positions)
                 error('ERROR: the time and position must have the same length\n')
@@ -2244,32 +2320,29 @@ classdef postSolution < handle
 
 
         %===============================================================
-        % This function returns the intersection of shock waves with a line
-        % defined by the two points, not including those two points.
-        % Note, this can find the intersection point with horizontal lines
-        % and vertical lines.
-        % The method is:
-        % 1. View the vehicle id as a function of time and find the corner point.
-        % 2. If it is a (or an approximated < dt_tol) vertical line, then 
-        %    view vehicle id as a function of the position, then find the corner point.
-        % 3. Once the time or the position of the corner point found, then find 
-        %    the correspoing position or time on the line.
-        % input:
-        %       link: the link ID
-        %       t_interval: 2x1 float, the time of two points
-        %       pos_interval: 2x1 float, the position of two points in meters
-        %       M_interval: 2x1 float, the absolute vehicle ID, to save computation time
-        %                   set NaN if not sampled yet
-        %       searchDepth: int, the maximal search depth of the recursive function
-        %       tol: 2x1 float [dt_tol; dx_tol] the minimal value that we would further
-        %            split and locate the intersection point
-        % output:
-        %       pt_found: struct, .time, a column vector
-        %                         .position, a column vector, in meters
-        %                         .vehicle_id, a column vector, absolute vehicle ID
         function pt_found = searchShocksOnLine(self, link, t_interval, pos_interval, ...
                                                     M_interval, searchDepth, tol)
-
+            % This function returns the intersection of shock waves with a line defined by the two points, not including those two points.
+            %   - it can be used to find the intersection point with horizontal or vertical line segment.
+            %   - View the vehicle id as a function of time and find the corner point.
+            %   - If it is a (or an approximated < dt_tol) vertical line, then 
+            %    view vehicle id as a function of the position, then find the corner point.
+            %   - Once the time or the position of the corner point found, then find 
+            %    the correspoing position or time on the line.
+            % input:
+            %       link: the link ID
+            %       t_interval: 2x1 float, the time of two points
+            %       pos_interval: 2x1 float, the position of two points in meters
+            %       M_interval: 2x1 float, the absolute vehicle ID, to save computation time
+            %                   set NaN if not sampled yet
+            %       searchDepth: int, the maximal search depth of the recursive function
+            %       tol: 2x1 float [dt_tol; dx_tol] the minimal value that we would further
+            %            split and locate the intersection point
+            % output:
+            %       pt_found: struct, .time, a column vector
+            %                         .position, a column vector, in meters
+            %                         .vehicle_id, a column vector, absolute vehicle ID
+            
             pt_found = [];
 
             % if search depth is 
@@ -2438,18 +2511,18 @@ classdef postSolution < handle
 
 
         %===============================================================
-        % This function returns the density estimation at a given time.
-        % 1. It only computes the vehicle IDs at that time, hence no need 
-        %    to compute the entire density estimation diagram, faster.
-        % 2. it searches shockwave intersections at that time, and the 
-        %    traffic density will be aggregated and separated by the 
-        %    intersectoin points. Hence less initial conditions, faster.
-        % input: 
-        %       time: float, the time that we would like to extract density
-        % output:
-        %       density: struct, .(linkStr).X_grid_cum
-        %                        .(linkStr).IC
         function density = extractDensity(self, time)
+            % This function returns the density estimates at a given time.
+            %   - It only computes the vehicle IDs at that time, hence no need 
+            %    to compute the entire density estimation diagram, faster.
+            %   - it searches shockwave intersections at that time, and the 
+            %    traffic density will be aggregated and separated by the 
+            %    intersectoin points. Hence less initial conditions, faster.
+            % input: 
+            %       time: float, the time that we would like to extract density
+            % output:
+            %       density: struct, .(linkStr).X_grid_cum
+            %                        .(linkStr).IC
             
             % specify the search depth and tolerance
             search_depth = 0;
@@ -2488,23 +2561,23 @@ classdef postSolution < handle
 
         end
 
+        
 
         %===============================================================
-        % This funciton returns the slope of the vehicle id with respect to time or position
-        % This is different from findBoundaryFuncSlope function since findBoundaryFuncSlope uses 
-        % sendingFuncAtLink which removes the cloese boundary condition, while this function uses 
-        % absVehID which get the vehicle id at a certain points
-        % input:
-        %       link: the link id
-        %       t_interval: 2x1 float vector
-        %       pos_interval: 2x1 float vector define the line
-        %       M_interval: 2x1 float vector, the absolute vehicle id
-        %       slope_side: 'left', the first point side; 'right', the second point side
-        %       wrt: 'time', 'position', with respect to
-        %       tol: [dt_tol; dx_tol], the tolerance for stopping recursion.
         function slope = findFuncSlope(self, link, t_interval, pos_interval, ...
                                        M_interval, slope_side, wrt, tol)
-
+            % This funciton returns the slope of the vehicle id with respect to time or position.
+            % This is different from findBoundaryFuncSlope function since findBoundaryFuncSlope uses 
+            % sendingFuncAtLink which removes the cloese boundary condition, while this function uses 
+            % absVehID which get the vehicle id at a certain points
+            % input:
+            %       link: the link id
+            %       t_interval: 2x1 float vector
+            %       pos_interval: 2x1 float vector define the line
+            %       M_interval: 2x1 float vector, the absolute vehicle id
+            %       slope_side: 'left', the first point side; 'right', the second point side
+            %       wrt: 'time', 'position', with respect to
+            %       tol: [dt_tol; dx_tol], the tolerance for stopping recursion.
             
             if strcmp(wrt, 'time')
 
@@ -2604,115 +2677,20 @@ classdef postSolution < handle
 
         end
 
-        
-        
-        %===============================================================
-        % utility function
-        % This function is used to group the same element into blocks
-        % input:
-        %       k_ori: a row vector that we would like to group same elements into
-        %              a group.
-        %       minlength: the minimal length in each group, use inf to disable
-        %              this feature.
-        % output:
-        %       indicedGroupValue: [starting index, end index, block value]
-        % example:
-        % k=[1 1 1 1 1 1 1 2 2 2 NaN NaN NaN NaN 1 1 1 1 1 2]
-        % indicedGroupValue = groupSameElement(k, 5)
-        % OUTPUT:
-        % indicedGroupValue =
-        % [1 5 1;
-        %  6 7 1;
-        %  8 10 2;
-        %  11 14 NaN;
-        %  15 19 1
-        %  20 20 2];
-        function indicedGroupValue = groupSameElement(~, k_ori,minlength)
-            
-            k_vec = k_ori;
-            
-            if (~isrow(k_vec) && ~iscolumn(k_vec) )
-                error('Check k dimension\n');
-            elseif (iscolumn(k_vec))
-                k_vec = k_vec';
-            end
-            
-            if (~all(isnan(k_vec)==0))
-                randvalue = randn*10;
-                while ~all(k_vec~=randvalue)
-                    randvalue = randn*10;
-                end
-                k_vec(isnan(k_vec)) = randvalue;
-                randvalue = floor(randvalue*100000)/100000;
-            end
-            
-            %eliminate possible numerical error
-            k_tmp = round(k_vec*100000)/100000;
-            originalSize = size(k_tmp,2);
-            
-            i = 1;
-            indicedGroupValue = [0 0 0];    %initial offset
-            while (1)
-                
-                i=i+1;
-                [values, ivalues, ik_tmp] = unique(k_tmp,'stable');
-                
-                % set the starting indice
-                indicedGroupValue(i,1) = indicedGroupValue(i-1,2)+1;
-                % set the value
-                indicedGroupValue(i,3) = values(1,1);
-                
-                if (size(values,2) > 1) %not last
-                    if (ivalues(2,1) <= minlength)
-                        % in case that we prefer a minlength: e.g. each group
-                        % aggregate at most 5 elements.
-                        indicedGroupValue(i,2) = ivalues(2,1)-1+ indicedGroupValue(i-1,2);
-                        k_tmp(:,1:ivalues(2,1)-1) = [];
-                    elseif (ivalues(2,1) > minlength)
-                        indicedGroupValue(i,2) = minlength + indicedGroupValue(i-1,2);
-                        % remove those processed elements
-                        k_tmp(:,1:minlength) = [];
-                    end
-                    
-                    % is the last element, and smaller than minlength
-                elseif(originalSize-indicedGroupValue(i,1) <= minlength)
-                    indicedGroupValue(i,2) = originalSize;
-                    break;
-                    
-                else
-                    indicedGroupValue(i,2) = minlength + indicedGroupValue(i-1,2);
-                    % remove those processed elements
-                    k_tmp(:,1:minlength) = [];
-                end
-                
-            end
-            
-            % remove the initial offset (first row)
-            indicedGroupValue(1,:) = [];
-            
-            if (~all(isnan(k_ori)==0))
-                indicedGroupValue(indicedGroupValue(:,3)==randvalue,3) = NaN;
-            end
-            
-    
-        end
-    
-        
 
         %===============================================================
-        % utility function
-        % This function maps the values from original interval to a target interval
-        % input:
-        %       k_ori: the original values to be mapped
-        %       original_interval: nx2 matrix. Each row is an interval to be mapped
-        %           to the corresponding interval in target_interval.
-        %       target_interval: nx2 matrix. Each row is the target interval.
-        % output:
-        %       k_trans: the mapped values which has the same dimension as k_ori
-        % Example:
-        % k_trans = mapping(k,[0 k_c; k_c k_m],[0 0.5*k_m; 0.5*k_m k_m]);
-        % mapping (0~k_c)(k_c~k_,m) ==> (0~0.5*k_m)(0.5*k_m~k_m)
         function [k_trans] = mapping(~, k_ori, original_interval, target_interval)
+            % This function maps the values from original interval to a target interval
+            % input:
+            %       k_ori: the original values to be mapped
+            %       original_interval: nx2 matrix. Each row is an interval to be mapped
+            %           to the corresponding interval in target_interval.
+            %       target_interval: nx2 matrix. Each row is the target interval.
+            % output:
+            %       k_trans: the mapped values which has the same dimension as k_ori
+            % Example:
+            % k_trans = mapping(k,[0 k_c; k_c k_m],[0 0.5*k_m; 0.5*k_m k_m]);
+            % mapping (0~k_c)(k_c~k_,m) ==> (0~0.5*k_m)(0.5*k_m~k_m)
             
             k_trans = 0.0*k_ori;
             for i = 1:size(original_interval,1)
@@ -2728,10 +2706,9 @@ classdef postSolution < handle
         
         
         %===============================================================
-        % utility function
-        % The function compares the min of two values. If one value is NaN, it will
-        % return the other value. If both NaN, return NaN.
         function v = minNonEmpty(~, v1, v2)
+            % The function compares the min of two values which may be NaN. 
+            % If one value is NaN, it will return the other value. If both NaN, return NaN.
             
             if isempty(v1) && ~isempty(v2)
                 v = min(v2);
@@ -2751,16 +2728,16 @@ classdef postSolution < handle
             
         end
 
+        
+        
         %===============================================================
-        % utility function
-        % This function has the same functionality as unique(). But if two values
-        % are close within a tolerance, then return as they are same.
-        % input:
-        %       array: the array that we would like to find the unique values.
-        %       tol: the tolerance between two unique values.
-        % output: 
-        %       uniq: the unique values in the array
         function [uniq] = unique_tol(~, array, tol)
+            % This function has the same functionality as unique() but considers two values within tol as identical. 
+            % input:
+            %       array: the array that we would like to find the unique values.
+            %       tol: the tolerance between two unique values.
+            % output: 
+            %       uniq: the unique values in the array
             
             uniq = unique(array);
             
@@ -2773,36 +2750,6 @@ classdef postSolution < handle
             end
             
         end
-        
-        
-        
-        %===============================================================
-        % This function computes the difference between the approaximated
-        % piece-wise constant solution with the true solution
-        % input:
-        %       true_sol: struct, .T_cum, .q; the true solution
-        %       approx_sol: struct, .T_cum, .q: the true solution
-        % output:
-        %       abs_e: the absolute error between two solutions
-        function abs_e = getAbsError(~, true_sol, approx_sol)
-            
-            % get combined time grid
-            T_grid =[0; unique([true_sol.T_cum; approx_sol.T_cum])];
-            
-            % compute the abs difference
-            abs_e = 0;
-            for pt = 2:length(T_grid)
-                
-                true_flow = true_sol.q( find( true_sol.T_cum>= T_grid(pt),1 ) );
-                approx_flow = approx_sol.q( find( approx_sol.T_cum>= T_grid(pt),1 ) );
-                abs_e = abs_e + abs( true_flow - approx_flow )*...
-                                        (T_grid(pt) - T_grid(pt-1) );
-                
-            end
-            
-            
-        end
-        
         
         
         
