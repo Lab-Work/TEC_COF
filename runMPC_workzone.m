@@ -189,9 +189,9 @@ while (~exist(meter.com.stop_control, 'file') && ...
                                meter.t_sim_start-t_previous_sim_start,...
                                2, 2,...
                                tmp_hard_queue_limit, tmp_soft_queue_limit);
-%             State.estimateState();
-%             State.plotJuncs('all', sprintf('State estimate for %d',...
-%                                            meter.t_sim_start ));
+            State.estimateState();
+            State.plotJuncs('all', sprintf('State estimate for %d',...
+                                           meter.t_sim_start ));
             
             init_condition = State.extractDensity(meter.t_sim_start ...
                 - t_previous_sim_start);            
@@ -243,10 +243,10 @@ while (~exist(meter.com.stop_control, 'file') && ...
             [x, fval, exitflag, output] = CP.solveProgram;
 
             % Uncomment the following lines to get the exact solution
-%             Mos = postSolution(x, meter.net, CP.dv_index,...
-%                                meter.t_sim_end-meter.t_sim_start,...
-%                                meter.dx_res, meter.dt_res,...
-%                                hard_queue_limit, soft_queue_limit);
+            Mos = postSolution(x, meter.net, CP.dv_index,...
+                               meter.t_sim_end-meter.t_sim_start,...
+                               meter.dx_res, meter.dt_res,...
+                               hard_queue_limit, soft_queue_limit);
 %             
 %             [getAdmissible, steps] = Mos.checkSolution(admissibleTolerance);
 %             
@@ -258,10 +258,10 @@ while (~exist(meter.com.stop_control, 'file') && ...
         end
         
         %%
-        % Plot the admissible result by uncommenting the following two lines
-        
-%         title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
-%         Mos.plotJuncs('all', title_str);
+        % Plot the result by uncommenting the following two lines
+        Mos.estimateState();
+        title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
+        Mos.plotJuncs('all', title_str);
         
         %%
         % Ideally we can use the computation time which is in the order of
@@ -283,7 +283,6 @@ while (~exist(meter.com.stop_control, 'file') && ...
         % Save the state solution which will be used for extracting the new
         % initial condition
         
-        flow_sol = x;
         t_previous_roll_now = meter.t_now;   % update the t_now in previous roll
         t_previous_sim_start = meter.t_sim_start;
     end

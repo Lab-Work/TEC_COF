@@ -8,7 +8,7 @@ classdef postSolution < handle
     %   - It analyzes if the internal boundary flow is admissible, and
     %     updates the boundary grid by locating the wavefront intersection.
     
-    properties (Access = protected)
+    properties (Access = private)
         
         x;  % column vector, solution obtained from the CP
         dv_index;   % save a copy of the index of decision variables from CP
@@ -421,7 +421,7 @@ classdef postSolution < handle
                     
                     colormap jet
                     
-                    [~, ~] = LH_plot2D_junc([self.net.network_hwy.(link1).para_postkm*1000,...
+                    [ax1, ax2] = LH_plot2D_junc([self.net.network_hwy.(link1).para_postkm*1000,...
                         self.net.network_hwy.(link1).para_postkm*1000],...
                         self.net.network_junc.(juncStr).T_cum',...
                         length(self.net.network_junc.(juncStr).T), ...
@@ -430,6 +430,60 @@ classdef postSolution < handle
                     h = suptitle(sprintf('%s\n Total Flow: %f;\n Number of steps: %d; Penalty: %f\n',...
                         title_str, tt_flow, length(self.net.network_junc.(juncStr).T)), tt_pen);
                     set(h,'FontSize',24)
+                    
+                    % plot additional hard queue limit solid lines and the
+                    % soft queue limit in dash lines
+                    t_line_hard = [self.net.network_junc.(juncStr).T_cum(1),...
+                                  self.net.network_junc.(juncStr).T_cum(end)]';
+                    t_line_soft = self.t_start_sim:30:self.t_end_sim;
+                    if t_line_soft(end) ~= self.t_end_sim
+                        t_line_soft = [t_line_soft'; self.t_end_sim];
+                    else
+                        t_line_soft = t_line_soft';
+                    end
+                              
+                    hold(ax1, 'on');
+                    if isfield(self.hard_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.hard_queue_limit.(link1);
+                        plot(ax1, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.hard_queue_limit, link2)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link2).para_postkm*1000 - self.hard_queue_limit.(link2);
+                        plot(ax1, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.soft_queue_limit.(link1);
+                        plot(ax1, t_line_soft, x_queue*ones(length(t_line_soft), 1), '+r--', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link2)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link2).para_postkm*1000 - self.soft_queue_limit.(link2);
+                        plot(ax1,  t_line_soft, x_queue*ones(length(t_line_soft), 1), '*r--', 'LineWidth', 3)
+                    end
+                    hold(ax1, 'off');
+                    
+                    hold(ax2,'on');
+                    if isfield(self.hard_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.hard_queue_limit.(link1);
+                        plot(ax2, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.hard_queue_limit, link3)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link3).para_postkm*1000 - self.hard_queue_limit.(link3);
+                        plot(ax2, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.soft_queue_limit.(link1);
+                        plot(ax2, t_line_soft, x_queue*ones(length(t_line_soft), 1), '+r--', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link3)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link3).para_postkm*1000 - self.soft_queue_limit.(link3);
+                        plot(ax2, t_line_soft, x_queue*ones(length(t_line_soft), 1), '*r--', 'LineWidth', 3)
+                    end
+                    hold(ax2, 'off');
+                    
                     
                 elseif strcmp(self.net.network_junc.(juncStr).type_junc,'connection')
                     %===========================================
@@ -470,7 +524,7 @@ classdef postSolution < handle
                     
                     colormap jet
                     
-                    [~, ~] = LH_plot2D_junc(self.net.network_hwy.(link1).para_postkm*1000,...
+                    [ax1, ~] = LH_plot2D_junc(self.net.network_hwy.(link1).para_postkm*1000,...
                         self.net.network_junc.(juncStr).T_cum',...
                         length(self.net.network_junc.(juncStr).T), ... 
                         self.t_mesh_s, xScaleComb,...
@@ -478,6 +532,29 @@ classdef postSolution < handle
                     h = suptitle(sprintf('Total Flow: %f\n Number of steps: %d\n',...
                         tt_flow, length(self.net.network_junc.(juncStr).T)));
                     set(h,'FontSize',24)
+                    
+                    hold(ax1, 'on');
+                    if isfield(self.hard_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.hard_queue_limit.(link1);
+                        plot(ax1, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.hard_queue_limit, link2)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link2).para_postkm*1000 - self.hard_queue_limit.(link2);
+                        plot(ax1, t_line_hard, [x_queue, x_queue]', 'r', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link1)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 - self.soft_queue_limit.(link1);
+                        plot(ax1, t_line_soft, x_queue*ones(length(t_line_soft), 1), '+r--', 'LineWidth', 3)
+                    end
+                    if isfield(self.soft_queue_limit, link2)
+                        x_queue = self.net.network_hwy.(link1).para_postkm*1000 + ...
+                                  self.net.network_hwy.(link2).para_postkm*1000 - self.soft_queue_limit.(link2);
+                        plot(ax1,  t_line_soft, x_queue*ones(length(t_line_soft), 1), '*r--', 'LineWidth', 3)
+                    end
+                    hold(ax1, 'off');
+                    
+                    
                 end
                 
             end
@@ -1284,6 +1361,59 @@ classdef postSolution < handle
         end
         
         
+        %===============================================================
+        function density = extractDensity(self, time)
+            % This function returns the density estimates at a given time.
+            %   - It only computes the vehicle IDs at that time, hence no need 
+            %    to compute the entire density estimation diagram, faster.
+            %   - it searches shockwave intersections at that time, and the 
+            %    traffic density will be aggregated and separated by the 
+            %    intersectoin points. Hence less initial conditions, faster.
+            % input: 
+            %       time: float, the time that we would like to extract density
+            % output:
+            %       density: struct, .(linkStr).X_grid_cum
+            %                        .(linkStr).IC
+            
+            % specify the search depth and tolerance
+            search_depth = 0;
+            tol = [1e-3; 1e-2];
+            
+            % check each link
+            for link = self.net.link_labels'
+
+                linkStr = sprintf('link_%d', link);
+
+                len_link = self.net.network_hwy.(linkStr).para_postkm*1000;
+
+                pt_found = self.searchShocksOnLine(link, [time; time], ...
+                    [0; len_link], [NaN; NaN], search_depth, tol);
+
+                % get the time, position, and vehicle id at two bounds
+                pt_us = [time, 0, self.absVehID(link, time, 0)];
+                pt_ds = [time, len_link, self.absVehID(link, time, len_link)];
+
+                % all the grid points
+                pt_all = [pt_us; pt_found; pt_ds];
+                pt_grid.position = pt_all(:,2);
+                pt_grid.vehicle_id = pt_all(:,3);
+
+                % compute the density
+                dx = pt_grid.position(2:end) - pt_grid.position(1:end-1);
+                dM = pt_grid.vehicle_id(1:end-1) - pt_grid.vehicle_id(2:end);
+                rho = dM./dx;
+
+                % normalize to kc
+                density.(linkStr).IC = rho;
+                density.(linkStr).X_grid_cum = pt_grid.position;
+
+            end
+
+
+        end
+
+        
+        
     end
     
     methods (Access = protected)
@@ -1385,7 +1515,8 @@ classdef postSolution < handle
             else
                 s_R = slope(2);
             end
-            % intersection point 
+            
+            % intersection point
             if abs(s_L - s_R) >= 1.0e-3
                 % make sure two slopes are not parallel, otherwise directly
                 % split them.
@@ -1441,6 +1572,7 @@ classdef postSolution < handle
             % if the time interval is too small, than stop computing slope
             % since this may give large numerical error
             if t_interval(2) - t_interval(1) <= dt_tol
+                warning('WARNING: The slope can not be computed\n')
                 slope = NaN;
                 return
             end
@@ -2509,59 +2641,6 @@ classdef postSolution < handle
 
         end
 
-
-        %===============================================================
-        function density = extractDensity(self, time)
-            % This function returns the density estimates at a given time.
-            %   - It only computes the vehicle IDs at that time, hence no need 
-            %    to compute the entire density estimation diagram, faster.
-            %   - it searches shockwave intersections at that time, and the 
-            %    traffic density will be aggregated and separated by the 
-            %    intersectoin points. Hence less initial conditions, faster.
-            % input: 
-            %       time: float, the time that we would like to extract density
-            % output:
-            %       density: struct, .(linkStr).X_grid_cum
-            %                        .(linkStr).IC
-            
-            % specify the search depth and tolerance
-            search_depth = 0;
-            tol = [1e-3; 1e-2];
-            
-            % check each link
-            for link = self.net.link_labels'
-
-                linkStr = sprintf('link_%d', link);
-
-                len_link = self.net.network_hwy.(linkStr).para_postkm*1000;
-
-                pt_found = self.searchShocksOnLine(link, [time; time], ...
-                    [0; len_link], [NaN; NaN], search_depth, tol);
-
-                % get the time, position, and vehicle id at two bounds
-                pt_us = [time, 0, self.absVehID(link, time, 0)];
-                pt_ds = [time, len_link, self.absVehID(link, time, len_link)];
-
-                % all the grid points
-                pt_all = [pt_us; pt_found; pt_ds];
-                pt_grid.position = pt_all(:,2);
-                pt_grid.vehicle_id = pt_all(:,3);
-
-                % compute the density
-                dx = pt_grid.position(2:end) - pt_grid.position(1:end-1);
-                dM = pt_grid.vehicle_id(1:end-1) - pt_grid.vehicle_id(2:end);
-                rho = dM./dx;
-
-                % normalize to kc
-                density.(linkStr).IC = rho;
-                density.(linkStr).X_grid_cum = pt_grid.position;
-
-            end
-
-
-        end
-
-        
 
         %===============================================================
         function slope = findFuncSlope(self, link, t_interval, pos_interval, ...

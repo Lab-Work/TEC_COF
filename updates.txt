@@ -66,26 +66,14 @@ Details:
 - Feb 16
 - auto logging with time stamps
 - Compare q1_ds + q2_ds with q3_us; may need to only set the measurement data constraints for q1 and q2.
-
+- Added the plotting for the soft and hard queue limit for the diverge and connection.
 
 
 
 Issues:
-- In find slope functions, if the interval is too small, the functions just return NaN which will introduce an error. Fix by computing an approximated slope.
-
-- The soft queue limit only applies in the current scenario, where a soft queue limit is only applied in the downstream link.
-- The applyEntropy only supports on ramp junctions for now.
-- currently plotting the hard queue and soft queue for visualization only works for the merge and onrampjunc.
-
-
-Track:
-- No off-ramp controller has been defined yet
+- In find slope functions, if the interval gets too small, the functions returns NaN to avoid introducing large numerical error and consuming to much computation time for unnecessary accuracy. Remember to set the AdmissibleTol (the error of the number of vehicles that we would consider as negligible and regard it as an admissible solution) as a positive number which can accommodates the small error caused by the corner points too close to the interval bound.
+- No off-ramp controller has been defined yet.
 - The upper and lower bound for internal and density decision variables are set as -inf and inf. Put a physical bound may produce solution using less computation time.
-
-
-
-
-Potential improvements in future:
 - Check the measurement error form AIMSUN detector and recalibrate the fundamental diagram. 
 - The penalty on the congestion in the current version does not support internal and density conditions. Otherwise, boolean variables must be introduced.
 
