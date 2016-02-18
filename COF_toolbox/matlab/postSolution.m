@@ -486,21 +486,21 @@ classdef postSolution < handle
         
         
         %===============================================================
-        function [TF, steps] = checkEntropy(self, entropyTol)
+        function [TF, steps] = checkSolution(self, admissibleTol)
             % Check if the solution is admissible.
-            %   - uses entropicSolutionAtJunc to compute the admissible
+            %   - uses admissibleSolutionAtJunc to compute the admissible
             %       solution
             %   - uses sending and receiving functions to check if the flow
             %       is maximized while minimizing the priority ratio.
             % input: 
             %       net: the network object 
-            %       entropy_tol: cars, the tolerance for entropy, for instance, 
-            %           if the error to entropic solution is only 1 car, we
-            %           consider this solution as an entropic solution and stop
+            %       admissible_tol: cars, the tolerance for admissible, for instance, 
+            %           if the error to admissible solution is only 1 car, we
+            %           consider this solution as an admissible solution and stop
             %           updating the discretization grid.
             % output: 
-            %       TF: true or false, this solution is an entropic solution?
-            %       steps: struct, .(juncStr), the id of the first non entropic
+            %       TF: true or false, this solution is an admissible solution?
+            %       steps: struct, .(juncStr), the id of the first non admissible
             %           step
                         
             TF = true;
@@ -531,7 +531,7 @@ classdef postSolution < handle
                                    self.dv_index.(linkStr).upstream(2,1));
                     
                     % check each step
-                    % break once found the first non-entropic step
+                    % break once found the first non-admissible step
                     for i = 1: length(T_grid)
                         
                         % set the reference point of this step
@@ -541,13 +541,13 @@ classdef postSolution < handle
                         
                         % Sample the start and end point of this step;
                         % compute the min of sending and receiving function
-                        % which should be entropic solution
-                        d_M = self.entropicSolutionAtJunc(t_end, junc);
+                        % which should be admissible solution
+                        d_M = self.admissibleSolutionAtJunc(t_end, junc);
                         
-                        if abs(q_thru(i)*T_grid(i)-d_M) > entropyTol
+                        if abs(q_thru(i)*T_grid(i)-d_M) > admissibleTol
                             % difference greater than the tolerance
                             % This may due to the discretization or we
-                            % simply did not add entropic component in the
+                            % simply did not add admissible component in the
                             % objective function
                             d_M_SR = [self.sendingFuncAtLink(t_end, inlink);
                                       self.receivingFuncAtLink(t_end, outlink)];
@@ -557,9 +557,9 @@ classdef postSolution < handle
                             
                             if self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(1), d_M_SR(1)]') && ...
                                self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(2), d_M_SR(2)]')     
-                                % meaning caused by not setting entropic
+                                % meaning caused by not setting admissible
                                 % solution or traffic control
-                                warning('WARNING: Step %d is not entropic\n', i);
+                                warning('WARNING: Step %d is not admissible\n', i);
                                 continue
                             else
                                 TF = false;
@@ -570,9 +570,9 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. In this case, the
+                            % the admissible solution. In this case, the
                             % affected domain of the discretization error
-                            % is small. we treat this as entropic
+                            % is small. we treat this as admissible
                             continue
                         end
                     end     %end each step
@@ -600,7 +600,7 @@ classdef postSolution < handle
                                    self.dv_index.(upFreewayStr).downstream(2,1));
                     
                     % check each step
-                    % break once found the first non-entropic step
+                    % break once found the first non-admissible step
                     for i = 1: length(T_grid)
                         
                         % set the reference point of this step
@@ -609,12 +609,12 @@ classdef postSolution < handle
                         t_end = T_cum_grid(i+1); % end time of this point
                         
                         % find out the receiving funciton on the downstream
-                        d_M = self.entropicSolutionAtJunc(t_end, junc);
+                        d_M = self.admissibleSolutionAtJunc(t_end, junc);
                         
-                        if abs(q_up(i)*T_grid(i) - d_M) > entropyTol
+                        if abs(q_up(i)*T_grid(i) - d_M) > admissibleTol
                             % difference greater than the tolerance
                             % This may due to the discretization or we
-                            % simply did not add entropic component in the
+                            % simply did not add admissible component in the
                             % objective function
                             d_M_SR = [self.sendingFuncAtLink(t_end, up_link);
                                       self.receivingFuncAtLink(t_end, outlink)];
@@ -624,9 +624,9 @@ classdef postSolution < handle
                             
                             if self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(1), d_M_SR(1)]') && ...
                                self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(2), d_M_SR(2)]')     
-                                % meaning caused by not setting entropic
+                                % meaning caused by not setting admissible
                                 % solution or traffic control
-                                warning('WARNING: Step %d is not entropic\n', i);
+                                warning('WARNING: Step %d is not admissible\n', i);
                                 continue
                             else
                                 TF = false;
@@ -637,9 +637,9 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. In this case, the
+                            % the admissible solution. In this case, the
                             % affected domain of the discretization error
-                            % is small. we treat this as entropic
+                            % is small. we treat this as admissible
                             continue
                         end
                     end     %end each step    
@@ -666,7 +666,7 @@ classdef postSolution < handle
                                    self.dv_index.(downFreewayStr).upstream(2,1));
                     
                     % check each step
-                    % break once found the first non-entropic step
+                    % break once found the first non-admissible step
                     for i = 1: length(T_grid)
                         
                         % set the reference point of this step
@@ -675,12 +675,12 @@ classdef postSolution < handle
                         t_end = T_cum_grid(i+1); % end time of this point
                         
                         % find out the receiving funciton on the downstream
-                        d_M = self.entropicSolutionAtJunc(t_end, junc);
+                        d_M = self.admissibleSolutionAtJunc(t_end, junc);
                         
-                        if abs(q_down(i)*T_grid(i) - d_M) > entropyTol
+                        if abs(q_down(i)*T_grid(i) - d_M) > admissibleTol
                             % difference greater than the tolerance
                             % This may due to the discretization or we
-                            % simply did not add entropic component in the
+                            % simply did not add admissible component in the
                             % objective function
                             d_M_SR = [self.sendingFuncAtLink(t_end, inlink);
                                       self.receivingFuncAtLink(t_end, down_link)];
@@ -690,9 +690,9 @@ classdef postSolution < handle
                             
                             if self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(1), d_M_SR(1)]') && ...
                                self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(2), d_M_SR(2)]')     
-                                % meaning caused by not setting entropic
+                                % meaning caused by not setting admissible
                                 % solution or traffic control
-                                warning('WARNING: Step %d is not entropic\n', i);
+                                warning('WARNING: Step %d is not admissible\n', i);
                                 continue
                             else
                                 TF = false;
@@ -703,9 +703,9 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. In this case, the
+                            % the admissible solution. In this case, the
                             % affected domain of the discretization error
-                            % is small. we treat this as entropic
+                            % is small. we treat this as admissible
                             continue
                         end
                     end     %end each step 
@@ -731,10 +731,10 @@ classdef postSolution < handle
                         t_end = T_cum_grid(i+1); % end time of this point
                        
                         % a 1 x 2 vector true unique solution from the two incoming links
-                        d_M = self.entropicSolutionAtJunc( t_end, junc);
+                        d_M = self.admissibleSolutionAtJunc( t_end, junc);
                         
-                        if abs( q_s1(i)*T_grid(i)-d_M(1) ) > entropyTol ||...
-                                abs( q_s2(i)*T_grid(i)-d_M(2) ) > entropyTol
+                        if abs( q_s1(i)*T_grid(i)-d_M(1) ) > admissibleTol ||...
+                                abs( q_s2(i)*T_grid(i)-d_M(2) ) > admissibleTol
                             % does not match the unique solution from the
                             % sampling approach
                             % the sending and receiving functions on the
@@ -751,9 +751,9 @@ classdef postSolution < handle
                             if self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(1), d_M_SR(1)]') &&...
                                   self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(2), d_M_SR(2)]') &&...
                                   self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(3), d_M_SR(3)]')
-                                % meaning caused by not setting entropic
+                                % meaning caused by not setting admissible
                                 % solution or traffic control
-                                warning('WARNING: Step %d is not entropic\n', i);
+                                warning('WARNING: Step %d is not admissible\n', i);
                                 continue
                             else
                                 TF = false;
@@ -764,18 +764,18 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. Hence double check the
+                            % the admissible solution. Hence double check the
                             % center point.
                             t_C = (t_start+t_end)/2;
-                            d_M_C = self.entropicSolutionAtJunc( t_C, junc);
+                            d_M_C = self.admissibleSolutionAtJunc( t_C, junc);
                             
-                            if abs( q_s1(i)*T_grid(i)/2 - d_M_C(1) ) > entropyTol ||...
-                                    abs( q_s2(i)*T_grid(i)/2 - d_M_C(2) ) > entropyTol
+                            if abs( q_s1(i)*T_grid(i)/2 - d_M_C(1) ) > admissibleTol ||...
+                                    abs( q_s2(i)*T_grid(i)/2 - d_M_C(2) ) > admissibleTol
                                 TF = false;
                                 steps.(juncStr) = i;
                                 break
                             else
-                                % entropy solutution
+                                % admissible solutution
                                 continue
                             end
                         end
@@ -801,10 +801,10 @@ classdef postSolution < handle
                         t_end = T_cum_grid(i+1); % end time of this point
                         
                         % a 1 x 2 vector true unique solution from the two incoming links
-                        d_M = self.entropicSolutionAtJunc( t_end, junc);
+                        d_M = self.admissibleSolutionAtJunc( t_end, junc);
                         
-                        if abs( q_r1(i)*T_grid(i)-d_M(1) ) > entropyTol ||...
-                                abs( q_r2(i)*T_grid(i)-d_M(2) ) > entropyTol
+                        if abs( q_r1(i)*T_grid(i)-d_M(1) ) > admissibleTol ||...
+                                abs( q_r2(i)*T_grid(i)-d_M(2) ) > admissibleTol
                             % does not match the unique solution from the
                             % sampling approach
                             d_M_SR = [self.receivingFuncAtLink(t_end, outlinks(1));
@@ -818,9 +818,9 @@ classdef postSolution < handle
                             if self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(1), d_M_SR(1)]') && ...
                                self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(2), d_M_SR(2)]') && ...
                                self.onStraightLine([t_start, t_C, t_end]',[0, d_M_C(3), d_M_SR(3)]')
-                                % meaning caused by not setting entropic
+                                % meaning caused by not setting admissible
                                 % solution or traffic control
-                                warning('WARNING: Step %d is not entropic\n', i);
+                                warning('WARNING: Step %d is not admissible\n', i);
                                 continue
                             else
                                 TF = false;
@@ -831,18 +831,18 @@ classdef postSolution < handle
                         else
                             % If the first half sends more and second half
                             % sends less, then the average may be same as
-                            % the entropic solution. 
+                            % the admissible solution. 
                             
                             t_C = (t_start+t_end)/2;
-                            d_M_C = self.entropicSolutionAtJunc( t_C, junc);
+                            d_M_C = self.admissibleSolutionAtJunc( t_C, junc);
                             
-                            if abs( q_r1(i)*T_grid(i)/2 - d_M_C(1) ) > entropyTol ||...
-                                    abs( q_r2(i)*T_grid(i)/2 - d_M_C(2) ) > entropyTol
+                            if abs( q_r1(i)*T_grid(i)/2 - d_M_C(1) ) > admissibleTol ||...
+                                    abs( q_r2(i)*T_grid(i)/2 - d_M_C(2) ) > admissibleTol
                                 TF = false;
                                 steps.(juncStr) = i;
                                 break
                             else
-                                % entropy solutution
+                                % admissible solutution
                                 continue
                             end
                         end
@@ -859,14 +859,14 @@ classdef postSolution < handle
         
         
         %===============================================================
-        function T_new_grid = updateTimeDiscretization(self, steps)
+        function T_new_grid = updateTimeGrid(self, steps)
             % Updates the the time grid by searching the intersection points
             %   - This function uses the old versions:
             %       searchBoundaryIntersection(), findBoundaryFuncSlope(),
             %   - Find the frontwave intersection point to eliminate the
             %       discretization error.
             % input: 
-            %       steps: struct, .(juncStr), the first non-entropic step. 
+            %       steps: struct, .(juncStr), the first non-admissible step. 
             %           Note, the update has to be done iteratively, 
             %           earlier steps first
             % output: 
@@ -896,19 +896,19 @@ classdef postSolution < handle
                 num_steps = length(self.net.network_junc.(juncStr).T);
                 
                 % find the start and end time of the next step of the
-                % non-entropic step, since the non-entropy could be caused 
+                % non-admissible step, since the non-admissible could be caused 
                 % by the intersection from the following step.
                 if ~isempty(steps.(juncStr))
                     
-                    nonentropic_step = steps.(juncStr);
+                    nonadmissible_step = steps.(juncStr);
                     
-                    self.t_ref = self.net.network_junc.(juncStr).T_cum(nonentropic_step);
-                    t_left = self.net.network_junc.(juncStr).T_cum(nonentropic_step);
+                    self.t_ref = self.net.network_junc.(juncStr).T_cum(nonadmissible_step);
+                    t_left = self.net.network_junc.(juncStr).T_cum(nonadmissible_step);
                 
-                    if nonentropic_step < num_steps
-                        t_right = self.net.network_junc.(juncStr).T_cum(nonentropic_step + 2);
+                    if nonadmissible_step < num_steps
+                        t_right = self.net.network_junc.(juncStr).T_cum(nonadmissible_step + 2);
                     else
-                        t_right = self.net.network_junc.(juncStr).T_cum(nonentropic_step+1);
+                        t_right = self.net.network_junc.(juncStr).T_cum(nonadmissible_step+1);
                     end
                 end
                     
@@ -1529,7 +1529,7 @@ classdef postSolution < handle
         
         
         %===============================================================
-        function d_M = entropicSolutionAtJunc(self, t_sample, junc)
+        function d_M = admissibleSolutionAtJunc(self, t_sample, junc)
             % This function computes the admissible solution between the self.t_ref and t_sample
             %   - it samples the sending and receiving function at all links,
             %   - then it computes the admissible solution
@@ -1538,8 +1538,8 @@ classdef postSolution < handle
             %        t_sample: float, the time point to be sampled
             %        junc: the label of the junction to be sampled
             % output: 
-            %       d_M: for connection, float, the entropic car ID at t_sample
-            %            for merge/diverge, 2x1 float, the entropic car ID at
+            %       d_M: for connection, float, the admissible car ID at t_sample
+            %            for merge/diverge, 2x1 float, the admissible car ID at
             %            two incoming/outgoing links, with respect to self.t_ref
             
             % t_ref is the reference point where M = 0
@@ -1561,7 +1561,7 @@ classdef postSolution < handle
                 d_M = min(self.sendingFuncAtLink(t_sample, inLink),...
                           self.receivingFuncAtLink(t_sample, outLink));
                       
-            % if it is a onrampjunc, then the entropic solution should be
+            % if it is a onrampjunc, then the admissible solution should be
             % q_upFreeway = min(q_upSending, q_downReceiving - q_on)
             elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'onrampjunc')
                 
@@ -1593,7 +1593,7 @@ classdef postSolution < handle
                                 q_on(step)*T_grid(step));
                             
                             
-            % if it is a offrampjunc, then the entropic solution should be
+            % if it is a offrampjunc, then the admissible solution should be
             % q_downFreeway = min(q_downReceiving, q_upSending - q_off)
             elseif strcmp(self.net.network_junc.(juncStr).type_junc, 'offrampjunc')
                 
@@ -1703,7 +1703,7 @@ classdef postSolution < handle
         function d_M = sendingFuncAtLink(self, t_sample, link)
             % This function cmoputes the amount of vehicle that can be sent on link between time self.t_ref and t_sample
             %   - The closest boundary condition (solution from x) was removed 
-            %       since it may not be entropic.
+            %       since it may not be admissible.
             %   - Do NOT call externally.
             % input: 
             %        t_sample: float, the boundary time to be sampled
@@ -1777,7 +1777,7 @@ classdef postSolution < handle
             BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
             BC_cum_ds_M(end) = [];
             
-            % remove the nonentropic boundary condition
+            % remove the nonadmissible boundary condition
             if sum( self.net.network_hwy.(linkStr).T_ds_cum > self.t_ref &...
                     self.net.network_hwy.(linkStr).T_ds_cum < t_sample ) ~= 0
                 % remove the last two pieces of downstream conditions
@@ -1915,7 +1915,7 @@ classdef postSolution < handle
         function d_M = receivingFuncAtLink(self, t_sample, link)
             % This function cmoputes the amount of vehicle that can be received on link between time self.t_ref and t_sample
             %   - The closest boundary condition (solution from x) was removed 
-            %       since it may not be entropic.
+            %       since it may not be admissible.
             %   - Do NOT call externally.
             % input: 
             %        t_sample: float, the boundary time to be sampled
@@ -1989,7 +1989,7 @@ classdef postSolution < handle
             BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
             BC_cum_ds_M(end) = [];
             
-            % remove nonentropic upstream boundary condition
+            % remove nonadmissible upstream boundary condition
             if sum( self.net.network_hwy.(linkStr).T_us_cum > self.t_ref &...
                     self.net.network_hwy.(linkStr).T_us_cum < t_sample) ~= 0
                 % remove the last two pieces of upstream conditions
@@ -2207,8 +2207,8 @@ classdef postSolution < handle
                 % NOTE: Do NOT remove any boundary condition before time.
                 % In sendingFuncAtLink(), we remove the closest piece of boundary condition 
                 % is because we would like to compute the sending function and the closest 
-                % piece of BC is nonentropic. Here we only want to know the vehicle id
-                % given the solutoin (which should already be entropic).
+                % piece of BC is nonadmissible. Here we only want to know the vehicle id
+                % given the solutoin (which should already be admissible).
 
 
                 %==========================================================

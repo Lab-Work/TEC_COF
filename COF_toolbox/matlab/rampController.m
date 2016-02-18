@@ -1,112 +1,80 @@
-% Yanning Li, sep 07, 2015
-% This class is for set up a model predictive controller
-% It can be used for onramp metering of offramp control. For now, we only
-% consider the work zone control scenario with only one merge or one
-% diverge.
-% The control scheme is as follows::
-% 1. Model predictive control scheme. E.g. use past period boundary measurement 
-%    data and the historical data for the next period, then output optimal
-%    control in the predict period.
-% 2. Roll forward once new measurement is available. The rolling step can
-%    be 5 min.
-% 3. Only the first period of the 30 min optimal control output will be
-%    applied on the ramp. Once new optimal control is availabel (updated by
-%    new measurement), the new optimal will be applied to the ramp.
-% 4. This class simulates a real-time control. The computation time of the
-%    solver is taken into account. Only the optimal control output after
-%    t_now + dt_computation time will be applied.
-% REMARK: 
-% - All communication between MATLAB and AIMSUN are in veh/hr, veh/km,
-%   km/hr, and s
-% - MATLAB internally use m and s. 
-% - AIMSUN internally may use km/hr or mile/hr depending on configuration.
-
-
 
 classdef rampController < handle
+    % This class is for set up a model predictive controller for the
+    % on-ramp metering control example.
+    % This class supports a variation of the model predictive control
+    % scheme which separates the entire time horizon into the past period
+    % and the predicted period which may be useful for incorporating the
+    % uncertainty in data later.
+    % 1. Model predictive control scheme. E.g. use past period boundary measurement
+    %    data and the historical data for the next period, then output optimal
+    %    control in the predict period.
+    % 2. Roll forward once new measurement is available. The rolling step can
+    %    be 5 min.
+    % 3. Only the first period of the 30 min optimal control output will be
+    %    applied on the ramp. Once new optimal control is availabel (updated by
+    %    new measurement), the new optimal will be applied to the ramp.
+    % 4. This class simulates a real-time control. The computation time of the
+    %    solver is taken into account. Only the optimal control output after
+    %    t_now + dt_computation time will be applied.
+    % REMARK:
+    % - All communication between MATLAB and AIMSUN are in veh/hr, veh/km,
+    %   km/hr, and s
+    % - MATLAB internally use m and s.
+    % - AIMSUN internally may use km/hr or mile/hr depending on configuration.
     
-    properties
+    properties (Access = public)
         
-        % The network to be controlled
-        net;
+        net;    % initNetwork object to be controlled
         
-        % historical data
-        historical_data;
+        historical_data;    % historical data
         
-        % past period data
-        past_period_data;
+        past_period_data;   % past period data
+        predict_period_data;    % predict period data (extracted from historical data)
         
-        % predict period data (extracted from historical data)
-        predict_period_data;
+        all_measurement_data;   % all measurement data
         
-        % all measurement data
-        all_measurement_data;
-        
-        % all discretized control signal.
+        % All discretized control signal.
         % [setting_time, duration, flow (veh/s)]
         all_signal;
         
-        % the short period signal to be write to file and applied in AIMSUN
+        % The first short period signal to be write to file and applied in AIMSUN
         % [setting_time, duration, flow (veh/s)]
         % When writing to file, veh/s was converted to veh/hr
         signal_to_apply;
         
-        % the starting time of the entire simulation. This is the abusolute
-        % zero time of the system.
+        % The starting time of the entire simulation. 
+        % This is the abusolute zero time of the system.
         t_horizon_start;
         
-        % the end time of the entire simulation. The simulation will stop
-        % at this time.
+        % The end time of the entire simulation. 
+        % The simulation will stop at this time.
         t_horizon_end;
         
-%         % rolling step duration. This parameter should be the interval
-%         % between two measurement. Set this parameter to prevent updating
-%         % the control signal too fast
-%         dt_roll_step;
-        
-        % the duration for warming up.
-        dt_warm_up;
+        dt_warm_up; % The duration for warming up.
         
         % Use the past dt_past measurement data to predict the future.
         % This value must be larger than dt_warm_up
         dt_past;
         
-        % compute the optimal control for dt_predict in the future
+        % Compute the optimal control for dt_predict in the future
         dt_predict;
         
-        % the current time in system
+        % The current time in system
         t_now;
         
-        % the following two are the simulated time for CP
-        % t_sim_start = max(t_horizon_start, t_now-dt_past)
-        % t_sim_end = min(t_horizon_edn, t_now+dt_predict)
-        t_sim_start;
-        t_sim_end;
+        t_sim_start;    % t_sim_start = max(t_horizon_start, t_now-dt_past)
+        t_sim_end;      % t_sim_end = min(t_horizon_edn, t_now+dt_predict)
         
-        % other paramters that can be leave as default
-        % the entropic solution tolerance in veh
-        entropy_tolerance;  
+        admissible_tolerance;  % tolerance of solution, veh
         
-        % The time space diagram resolution for visualization
-        dx_res;     % m
-        dt_res;     % s
+        dx_res;     % The space resolution for visualization, meters
+        dt_res;     % The time resolution for visualization, seconds
         
-        % the type of the controller: 'none', 'onramp', 'offramp'
+        % The type of the controller: 'none', 'onramp', 'offramp'
         control_type;
         
-%         % accuracy of different types of data
-%         % The accuracy of the historical data
-%         e_historical_flow; 
-%         
-%         % The accuracy of new boundary flow data
-%         e_flow_measurement;
-%         e_speed_measurement;
-%         
-%         % The estimation error of the initial density
-%         e_init_estimation;
-        
         % The struct that saves the communication file paths
-        com;
         % it contains:
         % - the network file written by AIMSUN, containing the network
         %   topology and properties
@@ -122,17 +90,17 @@ classdef rampController < handle
         %   matlab_init_done;
         % - the flag for the simulation completed
         %   simulation_completed;
+        com;
         
     end
     
     
     
-    methods
+    methods (Access = public)
         
         %===============================================================
-        % initialize the controller
         function self = rampController(~)
-            
+            % initialize the optimal on-ramp metering controller.
             self.t_horizon_start = 0;
             self.t_now = 0;
             
@@ -141,16 +109,10 @@ classdef rampController < handle
             self.predict_period_data = struct;
             
             % some that can be leave as default
-            self.entropy_tolerance = 1;  
+            self.admissible_tolerance = 1;  
             
             self.dx_res = 5;    % m
             self.dt_res = 2;    % s
-            
-%             self.e_historical_flow = 0.3;
-%             self.e_flow_measurement = 0.05;
-%             self.e_speed_measurement = 0.1;
-%             
-%             self.e_init_estimation = 0.1;
             
             self.net = struct;
             
@@ -158,17 +120,17 @@ classdef rampController < handle
         
         
         %===============================================================
-        % configure the control parameters
+        
         function configController(self, simulation_start_time,... 
                                   simulation_end_time,...
                                   dt_past, dt_predict, ...
                                   control_type)
+            % configure the control parameters
                               
             self.t_horizon_start = simulation_start_time;               
             self.t_horizon_end = simulation_end_time;
             self.dt_past = dt_past;
             self.dt_predict = dt_predict;
-%             self.dt_roll_step = dt_roll_step;
             
             self.control_type = control_type;
             
@@ -176,9 +138,8 @@ classdef rampController < handle
         
         
         %===============================================================
-        % set up the communication between MATLAB controller and AIMSUN
-        % simulator using file shareing
         function setUpCommunication(self, com_config_file)
+            % set up the communication between MATLAB controller and AIMSUN simulator using file shareing
             
             % MATLAB and AIMSUN communicate using shared files
             % set up the file path and names in the COM_CONFIG.m file
@@ -212,11 +173,11 @@ classdef rampController < handle
         
         
         %===============================================================
-        % read network configuration
-        % 1. read the net work configuration from file, auto generated by 
-        %    AIMSUN. 
-        % 2. Create a network structure net in this object
         function readNetworkFile(self)
+            % read network configuration
+            % 1. read the net work configuration from file, auto generated by 
+            %    AIMSUN. 
+            % 2. Create a network structure net in this object
             
             % wait for the network parameter files from CORSIM
             disp('Waiting for AIMSUN network information...');
@@ -321,16 +282,16 @@ classdef rampController < handle
         
         
         %===============================================================
-        % read historical boundary flow data
-        % input:
-        %       % data_file, the historical data file name
-        %       % each row: 
-        %           link_id,up/downstream,time (s),flow (veh/hr),speed
-        %           (miles/hr)
-        % output: saved in property historical_data
-        %       % struct; his_data.link_1 fields: t, q_us, q_ds,
-        %         v_us, v_ds
         function readHistoricalData(self, data_file)
+            % read historical boundary flow data
+            % input:
+            %       % data_file, the historical data file name
+            %       % each row:
+            %           link_id,up/downstream,time (s),flow (veh/hr),speed
+            %           (miles/hr)
+            % output: saved in property historical_data
+            %       % struct; his_data.link_1 fields: t, q_us, q_ds,
+            %         v_us, v_ds
             
             his_data = struct;
             
@@ -409,16 +370,16 @@ classdef rampController < handle
         
         
         %===============================================================
-        % warm up period
-        % This period is for warming up. The reason is that the initial
-        % density is normally not available or very unaccurate. Wait for
-        % sometime until we got enough boundary flow data, then do MPC.
-        % This function basically call getNewData to keep reading new data
-        % generated by AIMSUN. It steps out once the run time at AIMSUN is
-        % greater than warming_up_time.
-        % input: 
-        %       warming_up_time: the desired length of warming up time
         function warmUp(self, warming_up_time)
+            % Wait until warm up period is over
+            % This period is for warming up. The reason is that the initial
+            % density is normally not available or very unaccurate. Wait for
+            % sometime until we got enough boundary flow data, then do MPC.
+            % This function basically call getNewData to keep reading new data
+            % generated by AIMSUN. It steps out once the run time at AIMSUN is
+            % greater than warming_up_time.
+            % input: 
+            %       warming_up_time: the desired length of warming up time
             
             self.dt_warm_up = warming_up_time;
             
@@ -440,13 +401,13 @@ classdef rampController < handle
         
         
         %===============================================================
-        % Get new data. It 
-        % 1. returns false if new data is not available;
-        % 2. returns true if new data available
-        % 3. if new data avaliable, it will update the database in the 
-        %    properties measurement_data, past_period_data
-        % 4. It will update self.t_now to the latest time stamp
         function TF = getNewData(self)
+            % Checks and processes the new data 
+            % 1. returns false if new data is not available;
+            % 2. returns true if new data available
+            % 3. if new data avaliable, it will update the database in the
+            %    properties measurement_data, past_period_data
+            % 4. It will update self.t_now to the latest time stamp
             
             if ~exist(self.com.data_write_done,'file')
                 % no new data
@@ -626,15 +587,15 @@ classdef rampController < handle
         
         
         %===============================================================
-        % This function extracts measurement data in period, and return in
-        % a boundary data struct to set the boundary conditions.
-        % input: 
-        %   period_start: the absolute time in the entire time horizon
-        %   period_end: the absolute time in the entire time horizon
-        % output:
-        %   boundary_data: struct, BC_us are NOT normalized
-        %       .(linkStr).T_us, T_us_cum, BC_us, T_ds, T_ds_cum, BC_ds
         function boundary_data = extractBoundaryData(self, period_start, period_end)
+            % This function extracts measurement data in period. 
+            % It returns the boundary data in a boundary data struct to set the boundary conditions.
+            % input:
+            %   period_start: the absolute time in the entire time horizon
+            %   period_end: the absolute time in the entire time horizon
+            % output:
+            %   boundary_data: struct, BC_us are NOT normalized
+            %       .(linkStr).T_us, T_us_cum, BC_us, T_ds, T_ds_cum, BC_ds
             
             % Only returns the measurement data. If also need the
             % historical data to set the boundary condition, then use the
@@ -700,16 +661,17 @@ classdef rampController < handle
         end
         
         %===============================================================
-        % once data is available, then for each link
-        % 1. Measurement and historical both availabel, then update
-        % 2. Measurement data available, but historical not available, then
-        %    update measurment data, and evenly discretize predict period
-        %    and set flow as NaN by 30 s
-        % 3. Measurement data not available, but historical data is
-        %    available, then set all as historical data
-        % 4. Neither is available, evenly discretize past and predict
-        %    period by 30 s, data set as []
         function updateBoundaryCondition(self)
+             % Update the boundary condition based on the current time.
+             % 1. Measurement and historical both availabel, then update
+             % 2. Measurement data available, but historical not available, then
+             %    update measurment data, and evenly discretize predict period
+             %    and set flow as NaN by 30 s
+             % 3. Measurement data not available, but historical data is
+             %    available, then set all as historical data
+             % 4. Neither is available, evenly discretize past and predict
+             %    period by 30 s, data set as []
+             
             
             bound_str_list = {'us', 'ds'};
             
@@ -883,14 +845,13 @@ classdef rampController < handle
         
         
         %===============================================================
-        % update the grid of junctions to decrease the discretization
-        % error. T_grid need to be updated both in network_jun and
-        % network_hwy
-        % input:
-        %       T_grid: struct; link_1, the duration of each step
-        %           T_grid.link_1.T_us or T_grid.link_1.T_ds
-        %           T_grid.junc_1.T
         function updateBoundaryGrid(self, T_grid)
+            % Update the grid of junctions to decrease the discretization error. 
+            % T_grid need to be updated both in network_jun and network_hwy
+            % input:
+            %       T_grid: struct; link_1, the duration of each step
+            %           T_grid.link_1.T_us or T_grid.link_1.T_ds
+            %           T_grid.junc_1.T
             
             % if T_grid is [], simply return
             % The grid has been set by updateBoundaryConditions
@@ -952,17 +913,17 @@ classdef rampController < handle
         
         
         %===============================================================
-        % update the initial condition of the links, in net property.
-        % 1. At t = 0, IC can be left [], so no data constraints, this
-        %    code will automatically discretize the link evenly to cells
-        %    around 200 m
-        % 2. Otherwise, IC need to be extracted from density estimation,
-        %    which is implemented in postSolution class. NOTE, the IC is
-        %    normalized value to kc on each link.
-        % input:
-        %       init_condition: struct, .(linkStr).X_grid_cum, float column
-        %                               .(linkStr).IC, float column,
         function updateInitialCondition(self, init_condition)
+            % Update the initial condition of the links, in net property.
+            % 1. At t = 0, IC can be left [], so no data constraints, this
+            %    code will automatically discretize the link evenly to cells
+            %    around 200 m
+            % 2. Otherwise, IC need to be extracted from density estimation,
+            %    which is implemented in postSolution class. NOTE, the IC is
+            %    normalized value to kc on each link.
+            % input:
+            %       init_condition: struct, .(linkStr).X_grid_cum, float column
+            %                               .(linkStr).IC, float column,
             
             % if is nan, then evenly discretize each link into cells with
             % length around 200 m. Data will be set as NaN.
@@ -1019,27 +980,26 @@ classdef rampController < handle
         
         
         %===============================================================
-        % This function applies the optimal control which is the optimal
-        % continuous boundary flow
-        % 1. AIMSUN meter takes flow parameters as the control input
-        %    veh/hr. It actually approximate the flow using green red light.
-        % 2. We need to make sure the flow is approximated right before
-        %    changing the flow. E.g. 72 veh/hr is approximated by 49 s red
-        %    and 1 s flash green. 
-        % 3. It takes account of the realtime computation time. Only the 
-        %    the control after t_now + dt_computation is applied  
-        % 4. It saves the control signal in the format for AIMSUN to read
-        %    start_time (s), duration (s), flow (veh/hr)
-        % 5. AIMSUN is preset the flow in [0,900] veh/hr
-        % input:
-        %       x: the CP solution
-        %       dt_computation: the computation time before applying the
-        %           control
-        %       dv_index: the decision variable index for exracting flow
-        % output: the all_signal and signal_to_apply property will be
-        %       updated
-        %         the signal_to_apply will be written in file
         function applyControlByFlow(self, x, dt_computation, dv_index)
+            % This function applies the optimal control which is the optimal continuous boundary flow
+            % 1. AIMSUN meter takes flow parameters as the control input
+            %    veh/hr. It actually approximate the flow using green red light.
+            % 2. We need to make sure the flow is approximated right before
+            %    changing the flow. E.g. 72 veh/hr is approximated by 49 s red
+            %    and 1 s flash green.
+            % 3. It takes account of the realtime computation time. Only the
+            %    the control after t_now + dt_computation is applied
+            % 4. It saves the control signal in the format for AIMSUN to read
+            %    start_time (s), duration (s), flow (veh/hr)
+            % 5. AIMSUN is preset the flow in [0,900] veh/hr
+            % input:
+            %       x: the CP solution
+            %       dt_computation: the computation time before applying the
+            %           control
+            %       dv_index: the decision variable index for exracting flow
+            % output: the all_signal and signal_to_apply property will be
+            %       updated
+            %         the signal_to_apply will be written in file
                         
             % for each link, update control signal
             for link = self.net.link_labels'
@@ -1137,134 +1097,13 @@ classdef rampController < handle
             
         end
         
-        
-        
-        
+       
+    
         %===============================================================
-        % This function applies the optimal control which is discretized to
-        % cycles.
-        % 1. AIMSUN meter takes flow parameters as the control input
-        %    veh/hr. It actually approximate the flow using green red light.
-        % 2. We need to make sure the flow is approximated right before
-        %    changing the flow. E.g. 72 veh/hr is approximated by 49 s red
-        %    and 1 s flash green. 
-        % 3. It takes account of the realtime computation time. Only the 
-        %    the control after t_now + dt_computation is applied  
-        % 4. It saves the control signal in the format for AIMSUN to read
-        %    start_time (s), duration (s), flow (veh/hr)
-        % 5. AIMSUN is preset the flow in [0,900] veh/hr
-        % input:
-        %       x: the CP solution
-        %       links: int column vector; the links we would like to
-        %           control
-        %       dt_cycle: the control signal cycle. a new signal is set at 
-        %           cycle 
-        %       dt_computation: the computation time before applying the
-        %           control
-        % output: the all_signal and signal_to_apply property will be
-        %       updated
-        %         the signal_to_apply will be written in file
-        % DO NOT USE.
-        function applyControlByCycle(self, links, x, dt_cycle, dt_computation)
-                        
-            % for each link, update control signal
-            for link = links'
-                
-                linkStr = sprintf('link_%d', link);
-                
-                % if it is onramp, then control downstream flow
-                if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
-                
-                    T_cum = self.net.network_hwy.(linkStr).T_ds_cum +...
-                            self.t_now;
-                    
-                    % round up the time.
-                    t_signal_start = ceil((self.t_now + dt_computation)/dt_cycle)*...
-                                        dt_cycle;
-                    
-                    % find the continous flow from x                
-                    index_flow = T_cum(2:end) > t_signal_start;
-                    tmp_flow = x(self.net.dv_index.(linkStr).downstream(1,1):...
-                                    self.net.dv_index.(linkStr).downstream(2,1));
-                    signal_flow = tmp_flow(index_flow);
-                    
-                    % find the setting time of each signal flow
-                    tmp_setting_time = [t_signal_start;
-                                           T_cum(T_cum > t_signal_start)];
-                    signal_setting_time = tmp_setting_time(1:end-1);
-                                
-                    % discretize the signal into cycles
-                    self.signal_to_apply = self.discretizeSignal(signal_setting_time,...
-                                                signal_flow, dt_cycle);                
-                    
-                    % update all_signal property
-                    self.all_signal( self.all_signal(:,1) >= t_signal_start, :) = [];
-                    self.all_signal = [self.all_signal; self.signal_to_apply];
-                    
-                                            
-                elseif strcmp(self.net.network_hwy.(linkStr).para_linktype, 'offramp')  
-                    
-                    % we have not defined an offramp actuator
-                    error('ERROR: Offramp actuator not defined yet.\n')
-                    
-                else
-                    % if not onramp or offramp, then not controllable
-                    warning('WARNING: Link %d is not onramp or offramp, hence could not apply control.\n', link)
-                    continue
-                end
-                                
-                
-                
-            end
-            
-            
-            % write signal to file
-            disp('Writing signals...\n')
-            
-            fileID = fopen(self.com_signal_file,'w');
-            
-            % write header
-            fprintf(fileID,'#signal_setting_time,cycle_duration,signal_value(green-0,red-1)\n');
-            
-            % write signal
-            % NOTE: fprintf writes each column of the matrix as a row in
-            % file, hence transpose the matrix.
-            fprintf(fileID,'%.2f,%.2f,%d\n',self.signal_to_aply');
-            
-            fclose(fileID);
-            
-            % write the flag file
-            fileID = fopen(self.com_signal_write_done,'w');
-            fprintf(fileID,'write done');
-            fclose(fileID);
-            disp('Finished writing signals.\n')
-            
-            
-        end
-        
-        
-        
-        % Discretize the boundary flow into cycles. 
-        % At each cycle, we specify a new flow 
-        % input: 
-        %       signal_setting_time: nx1 vector, the set time of signal
-        %       signal_flow: nx1 vector the flow (veh/s)
-        %       dt_cycle: the cycle length
-        % DO NOT USE
-        function discretizeSignal(self, signal_setting_time, signal_flow, ...
-                                    dt_cycle)
-            
-           error('ERROR: discretizeSignal not implemented yet.\n')                     
-                                
-        end
-        
-        
-        
-        %===============================================================
-        % This function is called after MATLAB initialization. 
-        % It create a file flag to tell AIMSUN that MATLAB is ready to
-        % receive and process data (not ready to control yet)s
         function initMATLAB(self)
+            % This function is called after MATLAB initialization. 
+            % It create a file flag to tell AIMSUN that MATLAB is ready to
+            % receive and process data (not ready to control yet)s
             
             % tell AIMSUN that the initialization of MATLAB is done, start
             % simulation
@@ -1276,8 +1115,8 @@ classdef rampController < handle
         
         
         %===============================================================
-        % This function is called when MATLAB is ready to start control 
         function startControl(self)
+            % This function is called when MATLAB is ready to start control 
             
             % tell AIMSUN that the initialization of MATLAB is done, start
             % simulation
@@ -1289,8 +1128,8 @@ classdef rampController < handle
         
         
         %===============================================================
-        % This function is called when end time is reached and stop control 
         function stopControl(self)
+            % This function is called when end time is reached and stop control 
             
             % tell AIMSUN that the initialization of MATLAB is done, start
             % simulation
@@ -1301,12 +1140,11 @@ classdef rampController < handle
         end
         
         
-        
         %===============================================================
-        % This function checks if the simulation in AIMSUN is completed.
-        % output:
-        %       True/False
         function TF = simulationCompleted(self)
+            % This function checks if the simulation in AIMSUN is completed.
+            % output:
+            %       True/False
             
             if exist(self.com.simulation_completed,'file')
                 TF = true;
@@ -1319,56 +1157,12 @@ classdef rampController < handle
         end
         
         
-        
         %===============================================================
-        % Utility function
-        % read text file line by line. Save each line as a string with new
-        % line character removed. The entire file is saved as a cell of strings. 
-        % The line started with comment character % will be ignored
-        % input: 
-        %       filename: the filename to be read
-        % output: 
-        %       conten: cell of strings with each line as a string
-        function content = readTextFile(~, filename)
-            
-            content = {};
-            lineCounter = 0;
-            
-            if (~exist(filename,'file'))
-                error('File %s does not exist.\n', filename)
-            end
-            
-            fid = fopen(filename,'r');
-            
-            tline = fgetl(fid);
-            while ischar(tline)
-                
-                if strcmp(tline(1),'%') || strcmp(tline(1),'#')
-                    % comment line, ignore and continue 
-                    tline = fgetl(fid);
-                    continue
-                end
-                
-                % otherwise a line, save in cell
-                lineCounter = lineCounter + 1;
-                content{lineCounter} = tline;
-                tline = fgetl(fid);
-            end
-            
-            fclose(fid);
-            
-        end
-        
-        
-        
-        %===============================================================
-        % Utility function
-        % This function plots the signal control output and the real data
-        % measurement
-        % input: 
-        %       link: the link id of the on ramp, where the meter is
-        %           installed at its downstream 
         function compareSignalandData(self, link)
+            % This function plots the signal control output and the real data measurement
+            % input:
+            %       link: the link id of the on ramp, where the meter is
+            %           installed at its downstream
             
             linkStr = sprintf('link_%d', link);
             data = [self.all_measurement_data.(linkStr).t_ds,...
@@ -1405,15 +1199,12 @@ classdef rampController < handle
         
         
         
-        
         %===============================================================
-        % Utility function
-        % This function fills the past_period_data with all measurement
-        % data, then call other functions to construct CP and Mos to plot
-        % 1. It fills the upstream and downstream data for all links up to
-        %    t_now
-        % 2. It clears the predict_data to empty
         function replayHorizon(self)
+            % This function plots the traffic states over entire horizon using all measurement data.
+            % 1. It fills the upstream and downstream data for all links up to
+            %    t_now
+            % 2. It clears the predict_data to empty
             
             % This can be done simply by setting 
             % t_sim_start = t_horizon_start; t_sim_end = t_now
@@ -1465,9 +1256,8 @@ classdef rampController < handle
         
         
         %===============================================================
-        % Utility function
-        % write all signal file for reply in AIMSUN
         function writeAllSignalReplay(self)
+            % This function writes all the signals for replay in AIMSUN
             
             fileID = fopen(self.com.all_signal,'w');
             
@@ -1494,9 +1284,8 @@ classdef rampController < handle
         
         
         %===============================================================
-        % Utility function
-        % read all data and replay the forward simulation
         function readAllDataReplay(self)
+            % This function reads all the measurement data for replay in MATLAB.
             
             if ~exist(self.com.all_data, 'file')
                 error('all_data.txt does not exist.')
@@ -1665,6 +1454,151 @@ classdef rampController < handle
         
         
         
+    end
+    
+    
+    methods (Access = private)
+        
+        %===============================================================
+        function applyControlByCycle(self, links, x, dt_cycle, dt_computation)
+            % This function applies the optimal control which is discretized to cycles. 
+            %   - NOT TESTED. DO NOT USE.
+            %   - Setting flows may result in not exact approximation in
+            %   AIMSUN as discussed in the first bullet in
+            %   applyControlByFlow()
+            %   - This function attempts to directly control the meter to
+            %   be green or red during certain time intervals to obtain a
+            %   more accurate control of the on-ramp flow.
+            % input:
+            %       x: the CP solution
+            %       links: int column vector; the links we would like to
+            %           control
+            %       dt_cycle: the control signal cycle. a new signal is set at
+            %           cycle
+            %       dt_computation: the computation time before applying the
+            %           control
+            % output: the all_signal and signal_to_apply property will be
+            %       updated
+            %         the signal_to_apply will be written in file
+                        
+            % for each link, update control signal
+            for link = links'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % if it is onramp, then control downstream flow
+                if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
+                
+                    T_cum = self.net.network_hwy.(linkStr).T_ds_cum +...
+                            self.t_now;
+                    
+                    % round up the time.
+                    t_signal_start = ceil((self.t_now + dt_computation)/dt_cycle)*...
+                                        dt_cycle;
+                    
+                    % find the continous flow from x                
+                    index_flow = T_cum(2:end) > t_signal_start;
+                    tmp_flow = x(self.net.dv_index.(linkStr).downstream(1,1):...
+                                    self.net.dv_index.(linkStr).downstream(2,1));
+                    signal_flow = tmp_flow(index_flow);
+                    
+                    % find the setting time of each signal flow
+                    tmp_setting_time = [t_signal_start;
+                                           T_cum(T_cum > t_signal_start)];
+                    signal_setting_time = tmp_setting_time(1:end-1);
+                                
+                    % discretize the signal into cycles
+                    self.signal_to_apply = self.discretizeSignal(signal_setting_time,...
+                                                signal_flow, dt_cycle);                
+                    
+                    % update all_signal property
+                    self.all_signal( self.all_signal(:,1) >= t_signal_start, :) = [];
+                    self.all_signal = [self.all_signal; self.signal_to_apply];
+                    
+                                            
+                elseif strcmp(self.net.network_hwy.(linkStr).para_linktype, 'offramp')  
+                    
+                    % we have not defined an offramp actuator
+                    error('ERROR: Offramp actuator not defined yet.\n')
+                    
+                else
+                    % if not onramp or offramp, then not controllable
+                    warning('WARNING: Link %d is not onramp or offramp, hence could not apply control.\n', link)
+                    continue
+                end
+                                
+                
+                
+            end
+            
+            
+            % write signal to file
+            disp('Writing signals...\n')
+            
+            fileID = fopen(self.com_signal_file,'w');
+            
+            % write header
+            fprintf(fileID,'#signal_setting_time,cycle_duration,signal_value(green-0,red-1)\n');
+            
+            % write signal
+            % NOTE: fprintf writes each column of the matrix as a row in
+            % file, hence transpose the matrix.
+            fprintf(fileID,'%.2f,%.2f,%d\n',self.signal_to_aply');
+            
+            fclose(fileID);
+            
+            % write the flag file
+            fileID = fopen(self.com_signal_write_done,'w');
+            fprintf(fileID,'write done');
+            fclose(fileID);
+            disp('Finished writing signals.\n')
+            
+            
+        end
+        
+        
+        %===============================================================
+        function content = readTextFile(~, filename)
+            % A utility function, which reads text file line by line. 
+            %   - Save each line as a string with new line character removed. 
+            %   - The entire file is saved as a cell of strings.
+            %   - The line started with comment character % will be ignored
+            % input:
+            %       filename: the filename to be read
+            % output:
+            %       conten: cell of strings with each line as a string
+            
+            content = {};
+            lineCounter = 0;
+            
+            if (~exist(filename,'file'))
+                error('File %s does not exist.\n', filename)
+            end
+            
+            fid = fopen(filename,'r');
+            
+            tline = fgetl(fid);
+            while ischar(tline)
+                
+                if strcmp(tline(1),'%') || strcmp(tline(1),'#')
+                    % comment line, ignore and continue 
+                    tline = fgetl(fid);
+                    continue
+                end
+                
+                % otherwise a line, save in cell
+                lineCounter = lineCounter + 1;
+                content{lineCounter} = tline;
+                tline = fgetl(fid);
+            end
+            
+            fclose(fid);
+            
+        end
+        
+        
+        
+         
     end
     
     
