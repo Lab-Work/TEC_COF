@@ -1,4 +1,4 @@
-# Traffic Estimation and Control (TEC) toolbox based on Convex Optimizatoin Framework (COF).
+# Traffic Estimation and Control (TEC) toolbox based on a Convex Optimizatoin Framework (COF).
 Yanning Li, Feb 18th 2016, yli171@illinois.edu
 
 ##1) Overview:
