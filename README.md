@@ -6,7 +6,7 @@ This toolbox provides a numerical scheme for computing the traffic evolution on 
 
 The toolbox can also be used for optimal traffic control by constructing an optimization program. An optimal on-ramp metering control example is presented in this toolbox and discussed in the associated article.
 
-##2)License
+##2) License
 
 This software is licensed under the *University of Illinois/NCSA Open Source License*:
 
@@ -55,9 +55,11 @@ This folder contains the code developed for the toolbox. Specifically, the follo
 - [rampController.m](https://github.com/Lab-Work/TEC_COF/blob/master/COF_toolbox/matlab/rampController.m) This class defines the model predictive control framework, which is used to construct an optimal on-ramp metering controller.
 - Other classes should not be used directly. 
 
-### [\UCBerkeley_LWR_solver](https://github.com/Lab-Work/TEC_COF/tree/master/UCBerkeley_LWR_solver) This folder contains the code developed by Berkeley for computing the solution of LWR PDE on a single link.
+### [\UCBerkeley_LWR_solver](https://github.com/Lab-Work/TEC_COF/tree/master/UCBerkeley_LWR_solver) 
+This folder contains the code developed by Berkeley for computing the solution of LWR PDE on a single link.
 
-### [\html](https://github.com/Lab-Work/TEC_COF/tree/master/html) This folder contains the more readable documentation of the two examples scripts. 
+### [\html](https://github.com/Lab-Work/TEC_COF/tree/master/html) 
+This folder contains the more readable documentation of the two examples scripts. 
 
 
 
