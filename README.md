@@ -10,7 +10,7 @@ The toolbox can also be used for optimal traffic control by constructing an opti
 
 This software is licensed under the *University of Illinois/NCSA Open Source License*:
 
-**Copyright (c) 2013 The Board of Trustees of the University of Illinois. All rights reserved**
+**Copyright (c) 2016 The Board of Trustees of the University of Illinois. All rights reserved**
 
 **Developed by: Department of Civil and Environmental Engineering University of Illinois at Urbana-Champaign**
 
@@ -32,7 +32,7 @@ Two examples are included in the toolbox, respectively a merge solver and an opt
 ### A merge solver:
 Run the script [merge_solver.m](https://github.com/Lab-Work/TEC_COF/blob/master/merge_solver.m). Refer to the published html [merge_solver.html](https://github.com/Lab-Work/TEC_COF/blob/master/html/merge_solver.html) for a more readable description. 
 
-### Optimal on-ramp metering control
+### Optimal on-ramp metering control:
 An optimal on-ramp metering controller example is provided in this toolbox. To run this example, you need to use [AIMSUN](https://www.aimsun.com/wp/) to simulate a microscopic traffic environment.
 - Install [AIMSUN](https://www.aimsun.com/wp/).
 - Download the microscopic model we built in AIMSUN and the python scripts we developed for AIMSUN to interact with MATLAB from [link](). We refer to the documentation in [link]() for the configuration of AIMSUN for running this example.
