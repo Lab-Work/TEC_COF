@@ -135,7 +135,7 @@ classdef postSolution < handle
                 
                 self.x_mesh_m.(linkStr) = 0:dx:ds_position;
                 self.t_mesh_s = self.t_start_sim:self.dt_res:self.t_end_sim;
-                
+              
                 xValues = ones(size(self.t_mesh_s'))*(self.x_mesh_m.(linkStr));
                 tValues = self.t_mesh_s' * ones(size(self.x_mesh_m.(linkStr)));
                 

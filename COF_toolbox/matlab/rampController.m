@@ -644,7 +644,7 @@ classdef rampController < handle
                         T_sim = unique([T_sim'; period_end]);
                         
                         boundary_data.(linkStr).(T_bound) = T_sim(2:end)-T_sim(1:end-1);
-                        boundary_data.(linkStr).(T_bound_sum) = ...
+                        boundary_data.(linkStr).(T_bound_cum) = ...
                             [0; cumsum(boundary_data.(linkStr).(T_bound) ) ];
                         
                         % set data to be empty
@@ -991,7 +991,6 @@ classdef rampController < handle
             %    the control after t_now + dt_computation is applied
             % 4. It saves the control signal in the format for AIMSUN to read
             %    start_time (s), duration (s), flow (veh/hr)
-            % 5. AIMSUN is preset the flow in [0,900] veh/hr
             % input:
             %       x: the CP solution
             %       dt_computation: the computation time before applying the
@@ -1027,7 +1026,130 @@ classdef rampController < handle
                                            T_cum(T_cum > t_signal_start)];
                     signal_setting_time = tmp_setting_time(1:end-1);
                     signal_duration = tmp_setting_time(2:end) - tmp_setting_time(1:end-1);
+                    
+                    % the duration of the first cell is shrinked due to the
+                    % computation time, hence need to increase the flow
+                    % accordingly
+                    signal_flow(1) = signal_flow(1)*(signal_duration(1)+dt_computation)/signal_duration(1);
+                    
+                    % discretize the signal into cycles
+                    self.signal_to_apply = [signal_setting_time, ...
+                                            signal_duration,...
+                                            signal_flow];                
+                    
+                    % update all_signal property
+                    if isempty(self.all_signal)
+                        self.all_signal = self.signal_to_apply;
+                    else
+                        self.all_signal( self.all_signal(:,1) >= t_signal_start, :) = [];
+                        self.all_signal = [self.all_signal; self.signal_to_apply];
+                    end
+                                            
+                elseif strcmp(self.net.network_hwy.(linkStr).para_linktype, 'offramp')  
+                    
+                    % we have not defined an offramp actuator
+                    error('ERROR: Offramp actuator not defined yet.\n')
+                    
+                end
                                 
+
+            end
+            
+
+            if ~isempty(self.signal_to_apply)
+                fprintf('Time %d: Writing signals ...\n', self.t_now)
+                
+                fileID = fopen(self.com.signal,'w');
+                
+                % write header
+                fprintf(fileID,'#signal_setting_time (s),cycle_duration (s), flow (veh/hr)\n');
+                
+                % write signal
+                % NOTE: fprintf writes each column of the matrix as a row in
+                % file, hence transpose the matrix.
+                % convert the flow from veh/s to veh/hr, then write
+                
+                signal_to_apply_vehhr = self.signal_to_apply;
+                signal_to_apply_vehhr(:,3) = signal_to_apply_vehhr(:,3)*3600;
+                fprintf(fileID,'%.2f,%.2f,%d\n',(signal_to_apply_vehhr)');
+                
+                fclose(fileID);
+                
+                % write the flag file
+                fileID = fopen(self.com.signal_write_done,'w');
+                fprintf(fileID,'write done');
+                fclose(fileID);
+                fprintf('Wrote signal: %d ~ %d\n', signal_to_apply_vehhr(1,1),...
+                    signal_to_apply_vehhr(end,1)+signal_to_apply_vehhr(end,2))
+                
+                % Make sure AIMSUN read the signal, signal file will be
+                % deleted once AIMSUN finishes reading it.
+                tmp_counter = 0;
+                while exist(self.com.signal,'file')
+                    if tmp_counter == 10
+                        disp('Wait for AIMSUN to read the signal...\n')
+                        tmp_counter = 0;
+                    end
+                    tmp_counter = tmp_counter+1;
+                    pause(0.1)    % wait in second
+                end
+                
+            else
+                self.stopControl();
+                
+            end
+            
+        end
+        
+        %===============================================================
+        function applyControlByShiftedFlow(self, x, dt_computation, dv_index)
+            % This function is same as the applyControlByFlow. 
+            % Difference:
+            %   - applyControlByFlow compensate the flow due to the
+            %   computation time by increasing propotionally increasing the
+            %   flow.
+            %   - this function simply shift all signals back by
+            %   dt_computation.
+            % input:
+            %       x: the CP solution
+            %       dt_computation: the computation time before applying the
+            %           control
+            %       dv_index: the decision variable index for exracting flow
+            % output: the all_signal and signal_to_apply property will be
+            %       updated
+            %         the signal_to_apply will be written in file
+                        
+            % for each link, update control signal
+            for link = self.net.link_labels'
+                
+                linkStr = sprintf('link_%d', link);
+                
+                % if it is onramp, then control downstream flow
+                if strcmp(self.net.network_hwy.(linkStr).para_linktype, 'onramp')
+                
+                    T_cum = self.net.network_hwy.(linkStr).T_ds_cum +...
+                            self.t_sim_start;
+                    
+                    % round up the time.
+                    t_signal_start = self.t_now;
+                    
+                    % find the continous flow from x                
+                    index_flow = T_cum(2:end) > t_signal_start;
+                    tmp_flow = x(dv_index.(linkStr).downstream(1,1):...
+                                 dv_index.(linkStr).downstream(2,1));
+                    % in veh/s
+                    signal_flow = tmp_flow(index_flow);
+                    
+                    % find the setting time of each signal flow
+                    tmp_setting_time = [t_signal_start;
+                                           T_cum(T_cum > t_signal_start)];
+                    signal_setting_time = tmp_setting_time(1:end-1);
+                    
+                    % shift the setting time
+                    signal_setting_time = signal_setting_time + dt_computation;
+                    
+                    signal_duration = tmp_setting_time(2:end) - tmp_setting_time(1:end-1);
+                    
                     % discretize the signal into cycles
                     self.signal_to_apply = [signal_setting_time, ...
                                             signal_duration,...
@@ -1098,6 +1220,7 @@ classdef rampController < handle
         end
         
        
+    
     
         %===============================================================
         function initMATLAB(self)

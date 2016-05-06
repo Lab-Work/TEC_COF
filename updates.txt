@@ -63,7 +63,7 @@ Details:
 34. Wrote a replay function in AIMSUN to see the signal control.
 35. Found a bug in AIMSUN. The detector should be too close to the entrance and exit, otherwise the vehicle appears or disappears without passing the detector. This gives incorrect count.
 
-- Feb 16
+- Feb 16, 2016
 - auto logging with time stamps
 - Compare q1_ds + q2_ds with q3_us; may need to only set the measurement data constraints for q1 and q2.
 - Added the plotting for the soft and hard queue limit for the diverge and connection.

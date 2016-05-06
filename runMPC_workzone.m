@@ -9,7 +9,7 @@
 % This is work zone onramp metering control example using the standard MPC
 % link 329 (fwy) and 390 (onramp) merge to link 330 (fwy)
 % 2. The predicted period is 10 min in the future, with grid 30 sec
-% 3. Data is streaming back every 1 min.
+% 3. Data is streaming back every 30 s.
 % 4. Predicted horizon rolls forward 1 min each time when new data is
 %   available.
 % 5. Use the measurement data to estimate the current traffic states. 
@@ -62,30 +62,39 @@ errors.e_default = 0.0;
 errors.e_his = 0.0; % historical data error
 errors.e_est = 0.0; % estimated initial condition error
 errors.e_meas_flow = 0.0;
-workzone_capacity = 0.5;
-max_meter_rate = 900;   % veh/hr
+
+est_errors = struct;
+est_errors.e_default = 0.0;
+est_errors.e_his = 0.0; % historical data error
+est_errors.e_est = 0.0; % estimated initial condition error
+est_errors.e_meas_flow = 0.0;
+
+
+
+workzone_capacity = 0.45;    % around 2100 veh/hr ~= 0.42*5040(qmax)
+max_meter_rate = 1800;   % veh/hr
 
 %% Set up the initial condition
 % The initial data in AIMSUN is all 0.
 % However, due to the uncertainty in the model parameters, need to put a
 % few vehicles in the initial condition for feasibility of the solver.
 %
-% The code will automatically evenly discretized the link
-% into cells with length smaller than 200 m
 init_condition.link_390.IC = zeros(5,1);
-init_condition.link_390.IC(5,1) = meter.net.network_hwy.link_390.para_kc*0.2;
+init_condition.link_390.IC(5,1) = meter.net.network_hwy.link_390.para_kc*0.3;
 init_condition.link_390.X_grid_cum = [0:...
     meter.net.network_hwy.link_390.para_postkm*1000/5: ...
     meter.net.network_hwy.link_390.para_postkm*1000]';
 
 init_condition.link_330.IC = zeros(5,1);
-init_condition.link_330.IC(5,1) = meter.net.network_hwy.link_330.para_kc*0.4;
+init_condition.link_330.IC(5,1) = meter.net.network_hwy.link_330.para_kc*1;
+% init_condition.link_330.IC(4,1) = meter.net.network_hwy.link_330.para_kc*1;
+% init_condition.link_330.IC(3,1) = meter.net.network_hwy.link_330.para_kc*0.1;
 init_condition.link_330.X_grid_cum = [0:...
     meter.net.network_hwy.link_330.para_postkm*1000/5: ...
     meter.net.network_hwy.link_330.para_postkm*1000]';
 
 init_condition.link_329.IC = zeros(5,1);
-init_condition.link_329.IC(5,1) = meter.net.network_hwy.link_329.para_kc*0.8;
+init_condition.link_329.IC(5,1) = meter.net.network_hwy.link_329.para_kc*0.6;
 init_condition.link_329.X_grid_cum = [0:...
     meter.net.network_hwy.link_329.para_postkm*1000/5:...
     meter.net.network_hwy.link_329.para_postkm*1000]';
@@ -103,7 +112,7 @@ hard_queue_limit = struct;
 % soft queue limit
 % exceeding this limit will be penalized.
 soft_queue_limit = struct;
-soft_queue_limit.link_330 = 100;
+soft_queue_limit.link_330 = 50;
 
 %% Start on-ramp metering control
 % The on-ramp metering control is in a MPC scheme. 
@@ -173,7 +182,7 @@ while (~exist(meter.com.stop_control, 'file') && ...
             LP.setConfig(net, 0, 0, ...
                 meter.t_sim_start-t_previous_sim_start,...
                 tmp_soft_queue_limit, tmp_hard_queue_limit);
-            LP.setConstraints(errors);
+            LP.setConstraints(est_errors);
             
             % This CP is only a layer over Berkeley HJ PDE Solver for easy 
             % implementation, and gives exact solution, maximization here
@@ -189,10 +198,12 @@ while (~exist(meter.com.stop_control, 'file') && ...
                                meter.t_sim_start-t_previous_sim_start,...
                                2, 2,...
                                tmp_hard_queue_limit, tmp_soft_queue_limit);
-            State.estimateState();
-            State.plotJuncs('all', sprintf('State estimate for %d',...
-                                           meter.t_sim_start ));
-            
+            if meter.t_sim_start > 3900
+                State.estimateState();
+                State.plotJuncs('all', sprintf('State estimate for %d',...
+                    meter.t_sim_start ));
+            end
+%             
             init_condition = State.extractDensity(meter.t_sim_start ...
                 - t_previous_sim_start);            
         end
@@ -259,25 +270,26 @@ while (~exist(meter.com.stop_control, 'file') && ...
         
         %%
         % Plot the result by uncommenting the following two lines
-        Mos.estimateState();
-        title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
-        Mos.plotJuncs('all', title_str);
-        
+        if meter.t_sim_start > 3900
+            Mos.estimateState();
+            title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
+            Mos.plotJuncs('all', title_str);
+        end
         %%
         % Ideally we can use the computation time which is in the order of
         % seconds. However, for more regularity of the meter signal, we
         % simply use the 15 s as the computation time.
         
-        % dt_computation_end = now;
-        % realtime_dt_computation = (dt_computation_end - dt_computation_start)*86400;
-        % fprintf('The computation time is %f\n', realtime_dt_computation);
+        dt_computation_end = now;
+        realtime_dt_computation = (dt_computation_end - dt_computation_start)*86400;
+        fprintf('The computation time is %f\n', realtime_dt_computation);
         
         % for debugging, assume a static 15 second computation time.
-        dt_computation = 15;    
+        dt_computation = 5;    
         
         %%
         % Extract and apply the control as a flow meter
-        meter.applyControlByFlow(x, dt_computation, CP.dv_index);
+        meter.applyControlByShiftedFlow(x, dt_computation, CP.dv_index);
         
         %%
         % Save the state solution which will be used for extracting the new
@@ -364,14 +376,14 @@ CP.maxDownflow([330], 1);
 % post processing, check admissible and update discretization
 % function obj=postSolutionMPC(x)
 % do not solver the states inside links
-Mos = postSolution(x, meter.net, CP.dv_index,...
-    meter.t_sim_end-meter.t_horizon_start,...
-    meter.dx_res, meter.dt_res,...
-    hard_queue_limit, soft_queue_limit);
-Mos.estimateState();
-
-title_str = sprintf('%d ~ %d', meter.t_horizon_start, meter.t_sim_end);
-        Mos.plotJuncs('all', title_str);
+% Mos = postSolution(x, meter.net, CP.dv_index,...
+%     meter.t_sim_end-meter.t_horizon_start,...
+%     meter.dx_res, meter.dt_res,...
+%     hard_queue_limit, soft_queue_limit);
+% Mos.estimateState();
+% 
+% title_str = sprintf('%d ~ %d', meter.t_horizon_start, meter.t_sim_end);
+%         Mos.plotJuncs('all', title_str);
 
 meter.compareSignalandData([390])
         
