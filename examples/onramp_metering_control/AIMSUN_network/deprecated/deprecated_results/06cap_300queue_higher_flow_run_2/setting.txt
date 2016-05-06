@@ -1,0 +1,51 @@
+This is a second run of using a different initial condition.
+Due to stochastic feature of AIMSUN simulation, this is a slightly different result obtained. 
+ 
+1. Use the higher flow AIMSUN .ang file. 
+2. Set work zone capacity as 0.6 of original road capacity, 
+which is read from AIMSUN output network configuration file.
+3. Set softqueue limit as 300 meters right upstream of the work zone.
+4. Set the error as follows:
+errors = struct;
+errors.e_default = 0.2;
+errors.e_his = 0.2; % historical data error
+errors.e_est = 0.0; % estimated initial condition error
+errors.e_meas_flow = 0.0;
+workzone_capacity = 0.6;
+max_meter_rate = 900;   % veh/hr
+5. Set the initial condition on all links as 0.2*rho_c.
+6. Consider the shock wave intersection points constraitns (using the 
+OptProgram.m class)
+
+
+Result:
+delay time: 19.62 (sec/km)
+total travel time: 123.65,
+workzone throughput: 2145
+
+detailed result:
+	Time Series	Value	Standard Deviation	Units
+	Delay Time - Car	19.62	39.72	sec/km
+	Density - Car	13.71	N/A	veh/km
+	Flow - Car	2145	N/A	veh/h
+	Harmonic Speed - Car	66.84	29.70	km/h
+	Input Count - Car	2345	N/A	veh
+	Input Flow - Car	2345	N/A	veh/h
+	Max Virtual Queue - Car	5	N/A	veh
+	Mean Queue - Car	27.72	N/A	veh
+	Mean Virtual Queue - Car	0.16	N/A	veh
+	Missed Turns - Car	0	N/A	
+	Number of Stops - Car	0.01	N/A	#/veh/km
+	Speed - Car	80.04	19.96	km/h
+	Stop Time - Car	9.86	36.44	sec/km
+	Total Travel Time - Car	123.65	N/A	h
+	Total Travelled Distance - Car	8623.96	N/A	km
+	Travel Time - Car	53.86	42.42	sec/km
+	Vehicles Inside - Car	200	N/A	veh
+	Vehicles Lost Inside - Car	0	N/A	veh
+	Vehicles Lost Outside - Car	0	N/A	veh
+	Vehicles Outside - Car	2145	N/A	veh
+	Vehicles Waiting to Enter - Car	0	N/A	veh
+
+
+

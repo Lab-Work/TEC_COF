@@ -1,0 +1,21 @@
+1. Use the higher flow AIMSUN .ang file. 
+2. workzone_capacity = 0.5 * original road capacity
+which is read from AIMSUN output network configuration file.
+3. Set softqueue limit as 100 meters right upstream of the work zone.
+4. Set the error all as zero
+5. As observed in AIMSUN: max_meter_rate = 900;   % veh/hr
+6. Historical data is the demand set in AIMSUN. AIMSUN will generate traffic according to the demand but with large variation.
+7. Randomly pick a scenario for the MPC.
+
+To avoid possible infeasibility of CP. 
+The initial conditions are
+link_390(5,1) = 0.2*kc
+link_330(5,1) = 0.4*kc
+link_329(5,1) = 0.8*kc
+
+
+Result:
+Delay Time: 21.06
+Total Travel Time: 126.21
+Throughput: 2152
+

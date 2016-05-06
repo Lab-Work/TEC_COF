@@ -1,0 +1,84 @@
+
+
+========================================================================
+=========================AIMSUN FD calibration=========================
+========================================================================
+FD calibration started at 2015-09-21 12:24:08
+
+Calibrating the congflow side of the fundamental diagram of one lane freeway link
+
+
+Aimsun opening C:\Users\TrafficControl\Google Drive\AIMSUN_traffic_control_simulation\FD_calibration\ang_files\FD_calibration.ang ...
+
+No Turn information for state state_9
+No Turn information for state state_8
+No Turn information for state state_1
+No Turn information for state state_0
+No Turn information for state state_3
+No Turn information for state state_2
+No Turn information for state state_5
+No Turn information for state state_4
+No Turn information for state state_7
+No Turn information for state state_6
+No Turn information for state state_15
+No Turn information for state state_14
+No Turn information for state state_17
+No Turn information for state state_16
+No Turn information for state state_11
+No Turn information for state state_10
+No Turn information for state state_13
+No Turn information for state state_12
+No Turn information for state state_19
+No Turn information for state state_18
+No Turn information for state state_20
+No Turn information for state state_21
+No Turn information for state state_22
+No Turn information for state state_23
+Finished setting Demand. 
+
+
+Setting up scenario...
+
+Setting up replications...
+---- Created replication 463 with seed 3503
+---- Created replication 464 with seed 23798
+---- Created replication 465 with seed 28860
+---- Created replication 466 with seed 12358
+---- Created replication 467 with seed 6370
+---- Created replication 468 with seed 14452
+---- Created replication 469 with seed 21488
+---- Created replication 470 with seed 7893
+---- Created replication 471 with seed 586
+---- Created replication 472 with seed 30447
+Created new average replication: average_result
+---- Added replication 463 to average_result
+---- Added replication 464 to average_result
+---- Added replication 465 to average_result
+---- Added replication 466 to average_result
+---- Added replication 467 to average_result
+---- Added replication 468 to average_result
+---- Added replication 469 to average_result
+---- Added replication 470 to average_result
+---- Added replication 471 to average_result
+---- Added replication 472 to average_result
+
+Reset replications...
+Simulating...
+
+Simulation finished
+
+Reading Replication data: ID 463
+Reading Replication data: ID 464
+Reading Replication data: ID 465
+Reading Replication data: ID 466
+Reading Replication data: ID 467
+Reading Replication data: ID 468
+Reading Replication data: ID 469
+Reading Replication data: ID 470
+Reading Replication data: ID 471
+Reading Replication data: ID 472
+Fundamental Diagram Calibration ended
+===========================================================================
+
+Aimsun is now closing...
+

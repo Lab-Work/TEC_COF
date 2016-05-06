@@ -1,0 +1,60 @@
+Final results.
+
+Statistics:
+
+Optimal control
+
+	Time Series	Value	Standard Deviation	Units
+	Delay Time - Car	30.33	92.83	sec/km
+	Density - Car	19.49	N/A	veh/km
+	Flow - Car	1918	N/A	veh/h
+	Harmonic Speed - Car	55.34	43.78	km/h
+	Input Count - Car	2219	N/A	veh
+	Input Flow - Car	2219	N/A	veh/h
+	Max Virtual Queue - Car	1	N/A	veh
+	Mean Queue - Car	112.82	N/A	veh
+	Mean Virtual Queue - Car	0	N/A	veh
+	Missed Turns - Car	0	N/A	
+	Number of Stops - Car	0	N/A	#/veh/km
+	Speed - Car	89.97	25.60	km/h
+	Stop Time - Car	26.76	91.92	sec/km
+	Total Travel Time - Car	135.93	N/A	h
+	Total Travelled Distance - Car	7984.73	N/A	km
+	Travel Time - Car	65.05	95.91	sec/km
+	Vehicles Inside - Car	301	N/A	veh
+	Vehicles Lost Inside - Car	0	N/A	veh
+	Vehicles Lost Outside - Car	0	N/A	veh
+	Vehicles Outside - Car	1918	N/A	veh
+	Vehicles Waiting to Enter - Car	0	N/A	veh
+
+
+	
+No control:
+	Time Series	Value	Standard Deviation	Units
+	Delay Time - Car	27.24	13.01	sec/km
+	Density - Car	14.75	N/A	veh/km
+	Flow - Car	2020	N/A	veh/h
+	Harmonic Speed - Car	57.08	13.42	km/h
+	Input Count - Car	2219	N/A	veh
+	Input Flow - Car	2219	N/A	veh/h
+	Max Virtual Queue - Car	1	N/A	veh
+	Mean Queue - Car	7.38	N/A	veh
+	Mean Virtual Queue - Car	0	N/A	veh
+	Missed Turns - Car	0	N/A	
+	Number of Stops - Car	0.02	N/A	#/veh/km
+	Speed - Car	60.24	14.43	km/h
+	Stop Time - Car	2.79	3.22	sec/km
+	Total Travel Time - Car	144.41	N/A	h
+	Total Travelled Distance - Car	8294.23	N/A	km
+	Travel Time - Car	63.06	14.35	sec/km
+	Vehicles Inside - Car	199	N/A	veh
+	Vehicles Lost Inside - Car	0	N/A	veh
+	Vehicles Lost Outside - Car	0	N/A	veh
+	Vehicles Outside - Car	2020	N/A	veh
+	Vehicles Waiting to Enter - Car	0	N/A	veh
+
+
+
+	
+	
+	

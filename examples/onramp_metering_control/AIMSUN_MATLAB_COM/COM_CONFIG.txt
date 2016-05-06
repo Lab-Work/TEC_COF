@@ -1,0 +1,24 @@
+% MATLAB and AIMSUN communicate by shared files. 
+% This file defines the file names that to be used for communication
+% All communication are done in km and hr.
+% The file that defines the network
+net,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\net.txt
+net_write_done,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\net_write_done.txt
+%
+% The measurement data file
+data,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\data.txt
+data_write_done,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\data_write_done.txt
+all_data,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\all_data.txt
+all_data_write_done,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\all_data_write_done.txt
+%
+% the control signal file
+signal,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\signal.txt
+signal_write_done,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\signal_write_done.txt
+all_signal,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\all_signal.txt
+all_signal_write_done,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\all_signal_write_done.txt
+%
+% matlab initialization done file
+matlab_init_done,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\matlab_init_done.txt
+simulation_completed,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\simulation_completed.txt
+stop_control,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\stop_control.txt
+start_control,C:\\Users\\TrafficControl\\Dropbox\\TEC_COF\\examples\\onramp_metering_control\\AIMSUN_MATLAB_COM\\start_control.txt

@@ -1,0 +1,4 @@
+link;link_id,390;num_lanes,1;lengthKM,1.99505217391;link_type,onramp;vf,16.3660937222;w,-3.6612485;kc_pl,0.0356419401742;km_pl,0.194887345123;qmax_pl,0.583333333333;v_min,0.0;v_max,31.2927222222
+link;link_id,330;num_lanes,2;lengthKM,1.40167368294;link_type,freeway;vf,24.6631355;w,-4.01440922222;kc_pl,0.0283718791554;km_pl,0.202642076876;qmax_pl,0.699705555556;v_min,0.0;v_max,31.2927222222
+link;link_id,329;num_lanes,2;lengthKM,2.61136333515;link_type,freeway;vf,24.6631355;w,-4.01440922222;kc_pl,0.0283718791554;km_pl,0.202642076876;qmax_pl,0.699705555556;v_min,0.0;v_max,31.2927222222
+junc;junc_id,428;inlink,329,390;outlink,330;assignment_ratio,1,1;junc_type,onrampjunc

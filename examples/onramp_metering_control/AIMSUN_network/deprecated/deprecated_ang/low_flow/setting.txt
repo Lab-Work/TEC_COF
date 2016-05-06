@@ -1,0 +1,16 @@
+The demand for this experiment is as follows:
+In total 12 states.
+Alternating demand between the following two:
+1. Main inflow, 2200 veh/hr; onram inflow, 300 veh/hr
+2. Main inflow, 1600 veh/hr; onram inflow, 300 veh/hr
+
+The intuition is to find a flow such that if the onramp meter is not controlled, there will be significant capacity drop. Otherwise, no capacity drop.
+However, got some problems:
+1. When no control exists, the congestion extends to the onramp merge which in fact itself regulates the on-ramp inflow and consequently the work zone no longer has the capacity drop.
+2. If use meter control, AIMSUN somehow queues vehicle on the lane that is to be reduced instead of letting vehicles merging actively to the other lane. This made the result worse than the no control case.
+
+There are two modelling choices of the work zone. 
+1. Model the work zone as a lane closure in traffic management. In this setting, AIMSUN will automatically assume there is some type of traffic management, e.g. a visible sign showing the lane closure upstream of the work zone. The effect is vehicles will merge early and smoothly and hence minimize the capacity drop phenomenon. In this setting, the throughput of the work zone is normally 2300~2400 under light congestion. 
+2. Model the work zone simply by reduce the number of lanes in the geometry. This will not alarm vehicles about the reduce of lanes and hence the capacity drop phenomenon is very prominent. In this case, a light congestion can cause significant capacity drop. The mainstream flow 2400 will already generate a capacity drop even when controlling the onramp flow to be zero.
+
+

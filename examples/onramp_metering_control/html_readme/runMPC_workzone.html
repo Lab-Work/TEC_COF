@@ -1,0 +1,851 @@
+
+<!DOCTYPE html
+  PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head>
+      <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+   <!--
+This HTML was auto-generated from MATLAB code.
+To make changes, update the MATLAB code and republish this document.
+      --><title>Optimal on-ramp metering control for a workzone</title><meta name="generator" content="MATLAB 8.5"><link rel="schema.DC" href="http://purl.org/dc/elements/1.1/"><meta name="DC.date" content="2016-05-06"><meta name="DC.source" content="runMPC_workzone.m"><style type="text/css">
+html,body,div,span,applet,object,iframe,h1,h2,h3,h4,h5,h6,p,blockquote,pre,a,abbr,acronym,address,big,cite,code,del,dfn,em,font,img,ins,kbd,q,s,samp,small,strike,strong,sub,sup,tt,var,b,u,i,center,dl,dt,dd,ol,ul,li,fieldset,form,label,legend,table,caption,tbody,tfoot,thead,tr,th,td{margin:0;padding:0;border:0;outline:0;font-size:100%;vertical-align:baseline;background:transparent}body{line-height:1}ol,ul{list-style:none}blockquote,q{quotes:none}blockquote:before,blockquote:after,q:before,q:after{content:'';content:none}:focus{outine:0}ins{text-decoration:none}del{text-decoration:line-through}table{border-collapse:collapse;border-spacing:0}
+
+html { min-height:100%; margin-bottom:1px; }
+html body { height:100%; margin:0px; font-family:Arial, Helvetica, sans-serif; font-size:10px; color:#000; line-height:140%; background:#fff none; overflow-y:scroll; }
+html body td { vertical-align:top; text-align:left; }
+
+h1 { padding:0px; margin:0px 0px 25px; font-family:Arial, Helvetica, sans-serif; font-size:1.5em; color:#d55000; line-height:100%; font-weight:normal; }
+h2 { padding:0px; margin:0px 0px 8px; font-family:Arial, Helvetica, sans-serif; font-size:1.2em; color:#000; font-weight:bold; line-height:140%; border-bottom:1px solid #d6d4d4; display:block; }
+h3 { padding:0px; margin:0px 0px 5px; font-family:Arial, Helvetica, sans-serif; font-size:1.1em; color:#000; font-weight:bold; line-height:140%; }
+
+a { color:#005fce; text-decoration:none; }
+a:hover { color:#005fce; text-decoration:underline; }
+a:visited { color:#004aa0; text-decoration:none; }
+
+p { padding:0px; margin:0px 0px 20px; }
+img { padding:0px; margin:0px 0px 20px; border:none; }
+p img, pre img, tt img, li img, h1 img, h2 img { margin-bottom:0px; } 
+
+ul { padding:0px; margin:0px 0px 20px 23px; list-style:square; }
+ul li { padding:0px; margin:0px 0px 7px 0px; }
+ul li ul { padding:5px 0px 0px; margin:0px 0px 7px 23px; }
+ul li ol li { list-style:decimal; }
+ol { padding:0px; margin:0px 0px 20px 0px; list-style:decimal; }
+ol li { padding:0px; margin:0px 0px 7px 23px; list-style-type:decimal; }
+ol li ol { padding:5px 0px 0px; margin:0px 0px 7px 0px; }
+ol li ol li { list-style-type:lower-alpha; }
+ol li ul { padding-top:7px; }
+ol li ul li { list-style:square; }
+
+.content { font-size:1.2em; line-height:140%; padding: 20px; }
+
+pre, code { font-size:12px; }
+tt { font-size: 1.2em; }
+pre { margin:0px 0px 20px; }
+pre.codeinput { padding:10px; border:1px solid #d3d3d3; background:#f7f7f7; }
+pre.codeoutput { padding:10px 11px; margin:0px 0px 20px; color:#4c4c4c; }
+pre.error { color:red; }
+
+@media print { pre.codeinput, pre.codeoutput { word-wrap:break-word; width:100%; } }
+
+span.keyword { color:#0000FF }
+span.comment { color:#228B22 }
+span.string { color:#A020F0 }
+span.untermstring { color:#B20000 }
+span.syscmd { color:#B28C00 }
+
+.footer { width:auto; padding:10px 0px; margin:25px 0px 0px; border-top:1px dotted #878787; font-size:0.8em; line-height:140%; font-style:italic; color:#878787; text-align:left; float:none; }
+.footer p { margin:0px; }
+.footer a { color:#878787; }
+.footer a:hover { color:#878787; text-decoration:underline; }
+.footer a:visited { color:#878787; }
+
+table th { padding:7px 5px; text-align:left; vertical-align:middle; border: 1px solid #d6d4d4; font-weight:bold; }
+table td { padding:7px 5px; text-align:left; vertical-align:top; border:1px solid #d6d4d4; }
+
+
+
+
+
+  </style></head><body><div class="content"><h1>Optimal on-ramp metering control for a workzone</h1><!--introduction--><p>This script gives an optimal on-ramp metering control example at a work zone. The work zone is simualted in AIMSUN. Loop detector data streams from AIMSUN to the optimal on-ramp metering controller and MATLAB computes the optimal on-ramp signal and applies to the AIMSUN simulator.</p><p><i>Yanning Li</i>, May 6, 2016</p><p>This is work zone onramp metering control example using the standard MPC:</p><div><ol><li>Links 329 (fwy) and 390 (onramp) merge to link 330 (fwy).</li><li>The predicted period for optimizing the onramp meter signal is 10 min   in the future, with an even time grid 30 sec.</li><li>Data from AIMSUN is aggregated every 30s, and streamed to the controller   every 1 min.</li><li>Predicted horizon rolls forward 1 min each time when new data is   available.</li><li>Use the measurement data to estimate the current traffic states and   re-optimize the meter signal.</li><li>Assume the measurement errors are 0. We refer to old paper on the   robust control:   <i>"Efficient robust control of first order scalar conservation laws using   semi-analytical solutions", Y. Li, E. Canepa, C. Claudel., DCDS-S,   2014</i></li></ol></div><p>Control objective:</p><div><ul><li>improve the safety for traveling through the work zone by alleviating   the traffic congestion upstream of the work zone.</li><li>maximize the onramp flow as much as possible without causeing freeway   congestion.</li></ul></div><!--/introduction--><h2>Contents</h2><div><ul><li><a href="#1">Configure the optimal on-ramp metering controller</a></li><li><a href="#6">Set up the initial condition</a></li><li><a href="#9">Start on-ramp metering control</a></li><li><a href="#17">Visualize and compare the traffic states with and without control</a></li></ul></div><h2>Configure the optimal on-ramp metering controller<a name="1"></a></h2><p>Set up the simulation time horizon.</p><pre class="codeinput">clearvars <span class="string">-except</span> <span class="string">dbg</span>
+
+meter = rampController;
+
+t_horizon_start = 0;
+t_horizon_end = 1*60*60;
+dt_past = 0;    <span class="comment">% no past period</span>
+dt_predict = 10*60;
+
+meter.configController(t_horizon_start, t_horizon_end, dt_past, dt_predict, <span class="keyword">...</span>
+                       <span class="string">'onrampControl'</span>);
+</pre><p>Set up communication with AIMSUN via file shareing. <b>Modify the file location accordingly.</b></p><pre class="codeinput">meter.setUpCommunication(<span class="string">'E:\\AIMSUN_MATLAB_COM\\COM_CONFIG.txt'</span>);
+</pre><p>Read the network information generated from AIMSUN. <i>meter</i> constructs a initNetwork object for this specific network.</p><pre class="codeinput">meter.readNetworkFile();
+</pre><p>The historical data is same as the demand set in AIMSUN. Since AIMSUN is a stochastic microscopic simulator, the actual true demand will be generated with additional noise. You may also use the average data from generated by multiple scenarios in AIMSUN as the hisotrical data, and use one scenario for the control experiment. <b>Modify the file location accordingly.</b></p><pre class="codeinput">meter.readHistoricalData(<span class="string">'E:\\AIMSUN_MATLAB_COM\\historical_data.txt'</span>);
+</pre><p>Set up the error. Here we assume the data is exact. See our paper on robust control which deals with the uncertainty in the data. e.g. [q_meas-e_meas_flow*q_max q_meas+e_meas_flow*q_max]      [rho_est-e_est*kc, rho_est+e_est*kc]</p><pre class="codeinput">errors = struct;
+errors.e_default = 0.0;
+errors.e_his = 0.0; <span class="comment">% historical data error</span>
+errors.e_est = 0.0; <span class="comment">% estimated initial condition error</span>
+errors.e_meas_flow = 0.0;
+
+<span class="comment">% You can set the estimation error to be not zero to accommodate the</span>
+<span class="comment">% measurement noise.</span>
+est_errors = struct;
+est_errors.e_default = 0.0;
+est_errors.e_his = 0.0; <span class="comment">% historical data error</span>
+est_errors.e_est = 0.0; <span class="comment">% estimated initial condition error</span>
+est_errors.e_meas_flow = 0.0;
+
+workzone_capacity = 0.45;    <span class="comment">% around 2100 veh/hr ~= 0.42*5040(qmax)</span>
+max_meter_rate = 1800;   <span class="comment">% veh/hr</span>
+</pre><h2>Set up the initial condition<a name="6"></a></h2><p>The initial data in AIMSUN is all 0. However, due to the uncertainty in the model parameters, need to put a few vehicles in the initial condition for feasibility of the solver.</p><pre class="codeinput">init_condition.link_390.IC = zeros(5,1);
+init_condition.link_390.IC(5,1) = meter.net.network_hwy.link_390.para_kc*0.3;
+init_condition.link_390.X_grid_cum = [0:<span class="keyword">...</span>
+    meter.net.network_hwy.link_390.para_postkm*1000/5: <span class="keyword">...</span>
+    meter.net.network_hwy.link_390.para_postkm*1000]';
+
+init_condition.link_330.IC = zeros(5,1);
+init_condition.link_330.IC(5,1) = meter.net.network_hwy.link_330.para_kc*1;
+init_condition.link_330.X_grid_cum = [0:<span class="keyword">...</span>
+    meter.net.network_hwy.link_330.para_postkm*1000/5: <span class="keyword">...</span>
+    meter.net.network_hwy.link_330.para_postkm*1000]';
+
+init_condition.link_329.IC = zeros(5,1);
+init_condition.link_329.IC(5,1) = meter.net.network_hwy.link_329.para_kc*0.6;
+init_condition.link_329.X_grid_cum = [0:<span class="keyword">...</span>
+    meter.net.network_hwy.link_329.para_postkm*1000/5:<span class="keyword">...</span>
+    meter.net.network_hwy.link_329.para_postkm*1000]';
+</pre><p>T_grid is the discretization at the junctions. If set as [], the toolbox will automatically discretize it into cells with 30 s length.</p><pre class="codeinput">T_junc_grid = [];
+</pre><p>Queue limit sampling points for control purpose.</p><pre class="codeinput"><span class="comment">% hard queue limit in meters from downstream location.</span>
+<span class="comment">% exceeding this limit will cause infeasibility.</span>
+hard_queue_limit = struct;
+
+<span class="comment">% soft queue limit in meters from downstream location.</span>
+<span class="comment">% exceeding this limit will be penalized.</span>
+soft_queue_limit = struct;
+soft_queue_limit.link_330 = 50;
+</pre><h2>Start on-ramp metering control<a name="9"></a></h2><p>The on-ramp metering control is in a MPC scheme.</p><div><ol><li>Whenever new data comes in, we solve a mini convex program which gives the traffic density on all links at current time.</li><li>Then use the estimated initial density and historical data to compute the optimal control signal for the next 10-min horizon.</li><li>The computed optimal signal is applied to AIMSUN where only the first minute is used since the signal is constantly updated by MATLAB.</li></ol></div><p>Make a copy of the net handle which includes the network profile and initial and boundary conditions for short-term estimation when new data comes.</p><pre class="codeinput">net = meter.net;
+</pre><p>Initialize MALTAB and start control</p><pre class="codeinput">meter.initMATLAB();
+dt_warm_up = 0*60;
+meter.warmUp(dt_warm_up);
+
+t_previous_sim_start = 0;
+
+meter.startControl();
+
+<span class="keyword">while</span> (~exist(meter.com.stop_control, <span class="string">'file'</span>) &amp;&amp; <span class="keyword">...</span>
+       ~exist(meter.com.simulation_completed, <span class="string">'file'</span>))
+
+    <span class="comment">% if got new data</span>
+    <span class="keyword">if</span> meter.getNewData()
+</pre><pre class="codeinput">        <span class="comment">%=======================================================</span>
+        <span class="comment">% entire horizon has been simulated. Stop control</span>
+        <span class="keyword">if</span> meter.t_sim_start == t_horizon_end
+            meter.stopControl();
+            <span class="keyword">break</span>;
+        <span class="keyword">end</span>
+
+        <span class="comment">% set a timer for the computation time</span>
+        dt_computation_start = now;
+
+        <span class="comment">% compute the initial condition</span>
+        <span class="keyword">if</span> meter.t_sim_start ~= 0
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Solve a mini-LP to get the an estimation of</span>
+            <span class="comment">% the current traffic condition</span>
+            LP = optProgram;
+            tmp_soft_queue_limit = struct;
+            tmp_hard_queue_limit = struct;
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% set the initial and boundary condition for the single step</span>
+            <span class="comment">% estimation</span>
+            net.setInitialCon(init_condition);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% extract the measurement data, and set it as the boundary</span>
+            <span class="comment">% condition for the mini-LP</span>
+            boundary_data = meter.extractBoundaryData(t_previous_sim_start,<span class="keyword">...</span>
+                meter.t_sim_start);
+            <span class="comment">% set the boundary condition of the mini-LP</span>
+            net.setBoundaryCon(boundary_data);
+            <span class="comment">% Theoretically, q3 = q1+q2; however, measurement error exists.</span>
+            <span class="comment">% Relax this to avoid infeasibility when error is set as 0</span>
+            net.network_hwy.link_330.BC_us = net.network_hwy.link_330.BC_us*NaN;
+            <span class="comment">% The junction boundary grid should also be upgraded</span>
+            net.network_junc.junc_428.T = net.network_hwy.link_330.T_us;
+            net.network_junc.junc_428.T_cum = net.network_hwy.link_330.T_us_cum;
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% configure the mini-LP, and set the constraints</span>
+            LP.setConfig(net, 0, 0, <span class="keyword">...</span>
+                meter.t_sim_start-t_previous_sim_start,<span class="keyword">...</span>
+                tmp_soft_queue_limit, tmp_hard_queue_limit);
+            LP.setConstraints(est_errors);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Remark: This mini-LP is only a layer over Berkeley HJ PDE solver</span>
+            <span class="comment">% for easy implementation, and gives exact solution.</span>
+            <span class="comment">% Maximization of the objective function will not take effect,</span>
+            <span class="comment">% and is just for consistency of CPLEX</span>
+            LP.maxDownflow([330], 1);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% solve the CP</span>
+            [x, fval, exitflag, output] = LP.solveProgram;
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% post processing</span>
+            State = postSolution(x, net, LP.dv_index,<span class="keyword">...</span>
+                               meter.t_sim_start-t_previous_sim_start,<span class="keyword">...</span>
+                               2, 2,<span class="keyword">...</span>
+                               tmp_hard_queue_limit, tmp_soft_queue_limit);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% visualization of the estimation results. Change the time 4000</span>
+            <span class="comment">% to visualize selected steps.</span>
+            <span class="keyword">if</span> meter.t_sim_start &gt; 4000
+                State.estimateState();
+                State.plotJuncs(<span class="string">'all'</span>, sprintf(<span class="string">'State estimate for %d'</span>,<span class="keyword">...</span>
+                    meter.t_sim_start ));
+            <span class="keyword">end</span>
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% extract the estimated traffic condition at current time.</span>
+            init_condition = State.extractDensity(meter.t_sim_start <span class="keyword">...</span>
+                - t_previous_sim_start);
+        <span class="keyword">end</span>
+</pre><p>Update the boundary condition and initial condition for this new horizon</p><pre class="codeinput">        meter.updateBoundaryCondition();
+        meter.updateInitialCondition(init_condition);
+</pre><p>Compute the optimal onramp metering signal on a given time grid. You may use the iterative binary search algorithm to locate the intersection of the shockwave at the junction. In this example, we disable the iterative algorithm by setting the upper bound of the loopCounter as 0 in the while loop.</p><pre class="codeinput">        getAdmissible = false;
+        loopCounter = 0;
+        <span class="keyword">while</span> getAdmissible == false &amp;&amp; loopCounter &lt;= 0
+
+            loopCounter = loopCounter + 1;
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Update the junction grid in net.junc_#.T which is needed when</span>
+            <span class="comment">% using the iterative binary search algorithm.</span>
+            meter.updateBoundaryGrid(T_junc_grid);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Construct a convex program over the entire predicted horizon.</span>
+
+            CP = optProgram;
+            <span class="comment">% start time, end time, queue_limit .(onramp) = 2/3 length</span>
+            CP.setConfig(meter.net, 0, meter.t_now-meter.t_sim_start,<span class="keyword">...</span>
+                         meter.t_sim_end-meter.t_sim_start,<span class="keyword">...</span>
+                         hard_queue_limit, soft_queue_limit);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Construct the constraints for the convex program</span>
+            CP.setConstraints(errors);
+            CP.setWorkzoneCapacity([330], workzone_capacity);
+            CP.setOnrampMeterMaxRate([390], max_meter_rate);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Define the objective function: penalizing congestion and</span>
+            <span class="comment">% maximizing onramp flows.</span>
+            CP.penalizeCongestion(1);
+            CP.maxOnrampFlow(390, 1);
+            CP.applyAdmissibleCon(<span class="string">'all'</span>);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Solve the CP.</span>
+            [x, fval, exitflag, output] = CP.solveProgram;
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% Post process the solution.</span>
+            Mos = postSolution(x, meter.net, CP.dv_index,<span class="keyword">...</span>
+                               meter.t_sim_end-meter.t_sim_start,<span class="keyword">...</span>
+                               meter.dx_res, meter.dt_res,<span class="keyword">...</span>
+                               hard_queue_limit, soft_queue_limit);
+
+            <span class="comment">%=======================================================</span>
+            <span class="comment">% The following lines are needed if using iterative binary</span>
+            <span class="comment">% search algorithm to obtain exact boundary flow solutions at</span>
+            <span class="comment">% the junction.</span>
+            <span class="comment">%</span>
+            <span class="comment">% Not needed in this control example.</span>
+<span class="comment">%             [getAdmissible, steps] = Mos.checkSolution(admissibleTolerance);</span>
+<span class="comment">%</span>
+<span class="comment">%             if getAdmissible == false</span>
+<span class="comment">%                 hold on</span>
+<span class="comment">%                 T_junc_grid = Mos.updateTimeGrid(steps);</span>
+<span class="comment">%             end</span>
+
+        <span class="keyword">end</span>
+
+        <span class="comment">%=======================================================</span>
+        <span class="comment">% Plot the traffic control results for selected steps by change the time 4000.</span>
+        <span class="keyword">if</span> meter.t_sim_start &gt; 4000
+            Mos.estimateState();
+            title_str = sprintf(<span class="string">'%d ~ %d'</span>, meter.t_sim_start, meter.t_sim_end);
+            Mos.plotJuncs(<span class="string">'all'</span>, title_str);
+        <span class="keyword">end</span>
+
+        <span class="comment">%=======================================================</span>
+        <span class="comment">% The computation time is generally less than 1 s, which allows it</span>
+        <span class="comment">% to be used for onramp metering control in MPC. However, for more</span>
+        <span class="comment">% regularity of the meter signal, we simply overwrite teh</span>
+        <span class="comment">% computational time as 5s.</span>
+        dt_computation_end = now;
+        realtime_dt_computation = (dt_computation_end - dt_computation_start)*86400;
+        fprintf(<span class="string">'The computation time is %f\n'</span>, realtime_dt_computation);
+        dt_computation = 5;
+
+        <span class="comment">%=======================================================</span>
+        <span class="comment">% Extract and apply the control signal to AIMSUN.</span>
+        meter.applyControlByShiftedFlow(x, dt_computation, CP.dv_index);
+
+        <span class="comment">%=======================================================</span>
+        <span class="comment">% Save the state solution which will be used for extracting the new</span>
+        <span class="comment">% initial condition</span>
+        t_previous_roll_now = meter.t_now;   <span class="comment">% update the t_now in previous roll</span>
+        t_previous_sim_start = meter.t_sim_start;
+</pre><pre class="codeinput">    <span class="keyword">end</span>
+
+<span class="keyword">end</span>
+</pre><p>Write all the signal into a file for replay in AIMSUN.</p><pre class="codeinput">meter.writeAllSignalReplay;
+</pre><h2>Visualize and compare the traffic states with and without control<a name="17"></a></h2><p>Visualize the applied control signal and the measurement onramp outflow data.</p><pre class="codeinput">meter.compareSignalandData([390])
+</pre><p><b>The rest of the code is deprecated.</b></p><p><i>The visualization of the traffic states is now obtained by directly plotting the trajectory data from AIMSUN.</i></p><pre class="codeinput"><span class="comment">% We would like to visually verify the performance of the controller. A</span>
+<span class="comment">% good visualization would be to show a time-space plot of the density over</span>
+<span class="comment">% the entire time horizon for both the controlled case and a uncontrolled</span>
+<span class="comment">% case.</span>
+<span class="comment">% We are planning to develop a script which can export all the trajectory</span>
+<span class="comment">% data from AIMSUN and plot the time-space density map. This should reflect</span>
+<span class="comment">% the true traffic density with and without control.</span>
+<span class="comment">% The script for using AIMSUN trajectory data is not ready. Hence this</span>
+<span class="comment">% section uses all the measurement data and plot an estimation of it using</span>
+<span class="comment">% the convex network solver on each link. It should be noted that due to</span>
+<span class="comment">% model uncertainty, the plot may contain visual glitches such as</span>
+<span class="comment">% congestion in the boundary of the freeway which in fact does not exist in</span>
+<span class="comment">% AIMSUN.</span>
+<span class="comment">%</span>
+<span class="comment">% % set the past period to be the entire time horizon instead of dt_past</span>
+<span class="comment">% meter.replayHorizon();</span>
+<span class="comment">%</span>
+<span class="comment">% % update the boundary discretization grid</span>
+<span class="comment">% meter.past_period_data.link_330.q_us = NaN*ones(length(meter.past_period_data.link_330.t_us),1);</span>
+<span class="comment">%</span>
+<span class="comment">% meter.updateBoundaryCondition();</span>
+<span class="comment">%</span>
+<span class="comment">% % update the initial condition based on the estimation</span>
+<span class="comment">% init_condition.link_390.IC =  meter.net.network_hwy.link_390.para_kc*ones(5,1)*0.2;</span>
+<span class="comment">% init_condition.link_390.X_grid_cum = [0:...</span>
+<span class="comment">%     meter.net.network_hwy.link_390.para_postkm*1000/5: ...</span>
+<span class="comment">%     meter.net.network_hwy.link_390.para_postkm*1000]';</span>
+<span class="comment">%</span>
+<span class="comment">% init_condition.link_330.IC =  meter.net.network_hwy.link_330.para_kc*ones(5,1)*0.2;</span>
+<span class="comment">% init_condition.link_330.X_grid_cum = [0:...</span>
+<span class="comment">%     meter.net.network_hwy.link_330.para_postkm*1000/5: ...</span>
+<span class="comment">%     meter.net.network_hwy.link_330.para_postkm*1000]';</span>
+<span class="comment">%</span>
+<span class="comment">% init_condition.link_329.IC =  meter.net.network_hwy.link_329.para_kc*ones(5,1)*0.2;</span>
+<span class="comment">% init_condition.link_329.X_grid_cum = [0:...</span>
+<span class="comment">%     meter.net.network_hwy.link_329.para_postkm*1000/5:...</span>
+<span class="comment">%     meter.net.network_hwy.link_329.para_postkm*1000]';</span>
+<span class="comment">%</span>
+<span class="comment">% meter.updateInitialCondition(init_condition);</span>
+<span class="comment">%</span>
+<span class="comment">% %=========================================</span>
+<span class="comment">% % build the CP; set the matrix, and solve</span>
+<span class="comment">% CP = optProgram;</span>
+<span class="comment">% % start time, end time, queue_limit .(onramp) = 2/3 length</span>
+<span class="comment">% CP.setConfig(meter.net, 0, meter.t_now-meter.t_horizon_start,...</span>
+<span class="comment">%     meter.t_now,...</span>
+<span class="comment">%     hard_queue_limit, soft_queue_limit);</span>
+<span class="comment">%</span>
+<span class="comment">% % constraints</span>
+<span class="comment">% % Here e_est is only used to constrain initial condition which we know is 0</span>
+<span class="comment">% % errors.e_est = 0.5;</span>
+<span class="comment">% % errors.e_meas_flow = 0.04;</span>
+<span class="comment">% CP.setConstraints(errors);</span>
+<span class="comment">% CP.setWorkzoneCapacity([330], workzone_capacity);</span>
+<span class="comment">% CP.setOnrampMeterMaxRate([390], max_meter_rate);</span>
+<span class="comment">%</span>
+<span class="comment">% % a meaningful objective here.</span>
+<span class="comment">% % The order is important</span>
+<span class="comment">% CP.maxDownflow([330], 1);</span>
+<span class="comment">% %CP.penalizeCongestion;</span>
+<span class="comment">% %CP.applyAdmissibleCon('all');</span>
+<span class="comment">% %CP.maxOnrampFlow('all');</span>
+<span class="comment">%</span>
+<span class="comment">% % solve the CP</span>
+<span class="comment">% [x, fval, exitflag, output] = CP.solveProgram;</span>
+
+<span class="comment">%=========================================</span>
+<span class="comment">% post processing, check admissible and update discretization</span>
+<span class="comment">% function obj=postSolutionMPC(x)</span>
+<span class="comment">% do not solver the states inside links</span>
+<span class="comment">% Mos = postSolution(x, meter.net, CP.dv_index,...</span>
+<span class="comment">%     meter.t_sim_end-meter.t_horizon_start,...</span>
+<span class="comment">%     meter.dx_res, meter.dt_res,...</span>
+<span class="comment">%     hard_queue_limit, soft_queue_limit);</span>
+<span class="comment">% Mos.estimateState();</span>
+<span class="comment">%</span>
+<span class="comment">% title_str = sprintf('%d ~ %d', meter.t_horizon_start, meter.t_sim_end);</span>
+<span class="comment">%         Mos.plotJuncs('all', title_str);</span>
+</pre><p class="footer"><br><a href="http://www.mathworks.com/products/matlab/">Published with MATLAB&reg; R2015a</a><br></p></div><!--
+##### SOURCE BEGIN #####
+%% Optimal on-ramp metering control for a workzone
+% This script gives an optimal on-ramp metering control example at a work
+% zone. The work zone is simualted in AIMSUN. Loop detector data streams
+% from AIMSUN to the optimal on-ramp metering controller and MATLAB
+% computes the optimal on-ramp signal and applies to the AIMSUN simulator.
+% 
+% _Yanning Li_, May 6, 2016
+%
+% This is work zone onramp metering control example using the standard MPC:
+%
+% # Links 329 (fwy) and 390 (onramp) merge to link 330 (fwy).
+% # The predicted period for optimizing the onramp meter signal is 10 min 
+%   in the future, with an even time grid 30 sec.
+% # Data from AIMSUN is aggregated every 30s, and streamed to the controller 
+%   every 1 min.
+% # Predicted horizon rolls forward 1 min each time when new data is
+%   available.
+% # Use the measurement data to estimate the current traffic states and
+%   re-optimize the meter signal.
+% # Assume the measurement errors are 0. We refer to old paper on the
+%   robust control: 
+%   _"Efficient robust control of first order scalar conservation laws using
+%   semi-analytical solutions", Y. Li, E. Canepa, C. Claudel., DCDS-S,
+%   2014_
+% 
+% Control objective:
+% 
+% * improve the safety for traveling through the work zone by alleviating
+%   the traffic congestion upstream of the work zone.
+% * maximize the onramp flow as much as possible without causeing freeway
+%   congestion.
+% 
+
+%% Configure the optimal on-ramp metering controller
+% Set up the simulation time horizon. 
+
+clearvars -except dbg
+
+meter = rampController;
+
+t_horizon_start = 0;
+t_horizon_end = 1*60*60;
+dt_past = 0;    % no past period
+dt_predict = 10*60;
+
+meter.configController(t_horizon_start, t_horizon_end, dt_past, dt_predict, ...
+                       'onrampControl');
+
+%%                    
+% Set up communication with AIMSUN via file shareing. 
+% *Modify the file location accordingly.* 
+meter.setUpCommunication('E:\\AIMSUN_MATLAB_COM\\COM_CONFIG.txt');
+
+
+%%
+% Read the network information generated from AIMSUN.
+% _meter_ constructs a initNetwork object for this specific network.
+meter.readNetworkFile();
+
+%%
+% The historical data is same as the demand set in AIMSUN. Since AIMSUN is
+% a stochastic microscopic simulator, the actual true demand will be
+% generated with additional noise. 
+% You may also use the average data from generated by multiple scenarios in
+% AIMSUN as the hisotrical data, and use one scenario for the control
+% experiment. 
+% *Modify the file location accordingly.* 
+meter.readHistoricalData('E:\\AIMSUN_MATLAB_COM\\historical_data.txt');
+
+%% 
+% Set up the error. Here we assume the data is exact. See our paper on
+% robust control which deals with the uncertainty in the data.
+% e.g. [q_meas-e_meas_flow*q_max q_meas+e_meas_flow*q_max]
+%      [rho_est-e_est*kc, rho_est+e_est*kc]
+errors = struct;
+errors.e_default = 0.0;
+errors.e_his = 0.0; % historical data error
+errors.e_est = 0.0; % estimated initial condition error
+errors.e_meas_flow = 0.0;
+
+% You can set the estimation error to be not zero to accommodate the
+% measurement noise.
+est_errors = struct;
+est_errors.e_default = 0.0;
+est_errors.e_his = 0.0; % historical data error
+est_errors.e_est = 0.0; % estimated initial condition error
+est_errors.e_meas_flow = 0.0;
+
+workzone_capacity = 0.45;    % around 2100 veh/hr ~= 0.42*5040(qmax)
+max_meter_rate = 1800;   % veh/hr
+
+%% Set up the initial condition
+% The initial data in AIMSUN is all 0.
+% However, due to the uncertainty in the model parameters, need to put a
+% few vehicles in the initial condition for feasibility of the solver.
+%
+init_condition.link_390.IC = zeros(5,1);
+init_condition.link_390.IC(5,1) = meter.net.network_hwy.link_390.para_kc*0.3;
+init_condition.link_390.X_grid_cum = [0:...
+    meter.net.network_hwy.link_390.para_postkm*1000/5: ...
+    meter.net.network_hwy.link_390.para_postkm*1000]';
+
+init_condition.link_330.IC = zeros(5,1);
+init_condition.link_330.IC(5,1) = meter.net.network_hwy.link_330.para_kc*1;
+init_condition.link_330.X_grid_cum = [0:...
+    meter.net.network_hwy.link_330.para_postkm*1000/5: ...
+    meter.net.network_hwy.link_330.para_postkm*1000]';
+
+init_condition.link_329.IC = zeros(5,1);
+init_condition.link_329.IC(5,1) = meter.net.network_hwy.link_329.para_kc*0.6;
+init_condition.link_329.X_grid_cum = [0:...
+    meter.net.network_hwy.link_329.para_postkm*1000/5:...
+    meter.net.network_hwy.link_329.para_postkm*1000]';
+
+%%
+% T_grid is the discretization at the junctions.
+% If set as [], the toolbox will automatically discretize it into 
+% cells with 30 s length.
+T_junc_grid = [];
+
+%% 
+% Queue limit sampling points for control purpose.
+
+% hard queue limit in meters from downstream location.
+% exceeding this limit will cause infeasibility.
+hard_queue_limit = struct;
+
+% soft queue limit in meters from downstream location.
+% exceeding this limit will be penalized.
+soft_queue_limit = struct;
+soft_queue_limit.link_330 = 50;
+
+
+%% Start on-ramp metering control
+% The on-ramp metering control is in a MPC scheme. 
+% 
+% # Whenever new data comes in, we solve a mini convex program which gives
+% the traffic density on all links at current time.
+% # Then use the estimated initial density and historical data to compute
+% the optimal control signal for the next 10-min horizon.
+% # The computed optimal signal is applied to AIMSUN where only the first
+% minute is used since the signal is constantly updated by MATLAB.
+
+%%
+% Make a copy of the net handle which includes the network profile and initial and
+% boundary conditions for short-term estimation when new data comes.
+net = meter.net;
+
+%%
+% Initialize MALTAB and start control
+meter.initMATLAB();
+dt_warm_up = 0*60;
+meter.warmUp(dt_warm_up);
+
+t_previous_sim_start = 0;
+
+meter.startControl();
+
+while (~exist(meter.com.stop_control, 'file') && ...
+       ~exist(meter.com.simulation_completed, 'file'))
+    
+    % if got new data
+    if meter.getNewData() 
+        
+        %=======================================================
+        % entire horizon has been simulated. Stop control
+        if meter.t_sim_start == t_horizon_end
+            meter.stopControl();
+            break;
+        end
+        
+        % set a timer for the computation time
+        dt_computation_start = now;
+        
+        % compute the initial condition
+        if meter.t_sim_start ~= 0
+            
+            %=======================================================
+            % Solve a mini-LP to get the an estimation of
+            % the current traffic condition
+            LP = optProgram;
+            tmp_soft_queue_limit = struct;
+            tmp_hard_queue_limit = struct;
+            
+            %=======================================================
+            % set the initial and boundary condition for the single step
+            % estimation
+            net.setInitialCon(init_condition);
+            
+            %=======================================================
+            % extract the measurement data, and set it as the boundary
+            % condition for the mini-LP
+            boundary_data = meter.extractBoundaryData(t_previous_sim_start,...
+                meter.t_sim_start);
+            % set the boundary condition of the mini-LP
+            net.setBoundaryCon(boundary_data);
+            % Theoretically, q3 = q1+q2; however, measurement error exists.
+            % Relax this to avoid infeasibility when error is set as 0
+            net.network_hwy.link_330.BC_us = net.network_hwy.link_330.BC_us*NaN;
+            % The junction boundary grid should also be upgraded
+            net.network_junc.junc_428.T = net.network_hwy.link_330.T_us;
+            net.network_junc.junc_428.T_cum = net.network_hwy.link_330.T_us_cum;
+            
+            %=======================================================
+            % configure the mini-LP, and set the constraints
+            LP.setConfig(net, 0, 0, ...
+                meter.t_sim_start-t_previous_sim_start,...
+                tmp_soft_queue_limit, tmp_hard_queue_limit);
+            LP.setConstraints(est_errors);
+            
+            %=======================================================
+            % Remark: This mini-LP is only a layer over Berkeley HJ PDE solver 
+            % for easy implementation, and gives exact solution. 
+            % Maximization of the objective function will not take effect, 
+            % and is just for consistency of CPLEX
+            LP.maxDownflow([330], 1);
+            
+            %=======================================================
+            % solve the CP
+            [x, fval, exitflag, output] = LP.solveProgram;
+            
+            %=======================================================
+            % post processing
+            State = postSolution(x, net, LP.dv_index,...
+                               meter.t_sim_start-t_previous_sim_start,...
+                               2, 2,...
+                               tmp_hard_queue_limit, tmp_soft_queue_limit);
+                           
+            %=======================================================
+            % visualization of the estimation results. Change the time 4000
+            % to visualize selected steps.
+            if meter.t_sim_start > 4000
+                State.estimateState();
+                State.plotJuncs('all', sprintf('State estimate for %d',...
+                    meter.t_sim_start ));
+            end
+             
+            %=======================================================
+            % extract the estimated traffic condition at current time. 
+            init_condition = State.extractDensity(meter.t_sim_start ...
+                - t_previous_sim_start);            
+        end
+        
+        %%
+        % Update the boundary condition and initial condition for this new horizon 
+        meter.updateBoundaryCondition();
+        meter.updateInitialCondition(init_condition);
+        
+        %% 
+        % Compute the optimal onramp metering signal on a given time grid.
+        % You may use the iterative binary search algorithm to locate the
+        % intersection of the shockwave at the junction. 
+        % In this example, we disable the iterative algorithm by setting
+        % the upper bound of the loopCounter as 0 in the while loop.
+        getAdmissible = false;
+        loopCounter = 0;
+        while getAdmissible == false && loopCounter <= 0
+            
+            loopCounter = loopCounter + 1;
+            
+            %=======================================================
+            % Update the junction grid in net.junc_#.T which is needed when
+            % using the iterative binary search algorithm.
+            meter.updateBoundaryGrid(T_junc_grid);
+            
+            %=======================================================
+            % Construct a convex program over the entire predicted horizon.
+            
+            CP = optProgram;
+            % start time, end time, queue_limit .(onramp) = 2/3 length
+            CP.setConfig(meter.net, 0, meter.t_now-meter.t_sim_start,...
+                         meter.t_sim_end-meter.t_sim_start,...
+                         hard_queue_limit, soft_queue_limit);
+            
+            %=======================================================
+            % Construct the constraints for the convex program
+            CP.setConstraints(errors);
+            CP.setWorkzoneCapacity([330], workzone_capacity);
+            CP.setOnrampMeterMaxRate([390], max_meter_rate);
+            
+            %=======================================================
+            % Define the objective function: penalizing congestion and
+            % maximizing onramp flows.
+            CP.penalizeCongestion(1);
+            CP.maxOnrampFlow(390, 1);
+            CP.applyAdmissibleCon('all');
+            
+            %=======================================================
+            % Solve the CP.
+            [x, fval, exitflag, output] = CP.solveProgram;
+        
+            %=======================================================
+            % Post process the solution.
+            Mos = postSolution(x, meter.net, CP.dv_index,...
+                               meter.t_sim_end-meter.t_sim_start,...
+                               meter.dx_res, meter.dt_res,...
+                               hard_queue_limit, soft_queue_limit);
+                           
+            %=======================================================
+            % The following lines are needed if using iterative binary
+            % search algorithm to obtain exact boundary flow solutions at
+            % the junction. 
+            % 
+            % Not needed in this control example.
+%             [getAdmissible, steps] = Mos.checkSolution(admissibleTolerance);
+%             
+%             if getAdmissible == false
+%                 hold on
+%                 T_junc_grid = Mos.updateTimeGrid(steps);
+%             end
+             
+        end
+        
+        %=======================================================
+        % Plot the traffic control results for selected steps by change the time 4000.
+        if meter.t_sim_start > 4000
+            Mos.estimateState();
+            title_str = sprintf('%d ~ %d', meter.t_sim_start, meter.t_sim_end);
+            Mos.plotJuncs('all', title_str);
+        end
+        
+        %=======================================================
+        % The computation time is generally less than 1 s, which allows it 
+        % to be used for onramp metering control in MPC. However, for more 
+        % regularity of the meter signal, we simply overwrite teh
+        % computational time as 5s.
+        dt_computation_end = now;
+        realtime_dt_computation = (dt_computation_end - dt_computation_start)*86400;
+        fprintf('The computation time is %f\n', realtime_dt_computation);
+        dt_computation = 5;    
+        
+        %=======================================================
+        % Extract and apply the control signal to AIMSUN. 
+        meter.applyControlByShiftedFlow(x, dt_computation, CP.dv_index);
+        
+        %=======================================================
+        % Save the state solution which will be used for extracting the new
+        % initial condition
+        t_previous_roll_now = meter.t_now;   % update the t_now in previous roll
+        t_previous_sim_start = meter.t_sim_start;
+        
+    end
+    
+end
+
+%%
+% Write all the signal into a file for replay in AIMSUN.
+meter.writeAllSignalReplay;
+
+%% Visualize and compare the traffic states with and without control
+% Visualize the applied control signal and the measurement onramp outflow data.
+meter.compareSignalandData([390])
+
+%%
+% *The rest of the code is deprecated.* 
+% 
+% _The visualization of the traffic states is now obtained by directly plotting
+% the trajectory data from AIMSUN._
+
+% We would like to visually verify the performance of the controller. A
+% good visualization would be to show a time-space plot of the density over
+% the entire time horizon for both the controlled case and a uncontrolled
+% case. 
+% We are planning to develop a script which can export all the trajectory
+% data from AIMSUN and plot the time-space density map. This should reflect
+% the true traffic density with and without control. 
+% The script for using AIMSUN trajectory data is not ready. Hence this
+% section uses all the measurement data and plot an estimation of it using
+% the convex network solver on each link. It should be noted that due to
+% model uncertainty, the plot may contain visual glitches such as
+% congestion in the boundary of the freeway which in fact does not exist in
+% AIMSUN.
+% 
+% % set the past period to be the entire time horizon instead of dt_past
+% meter.replayHorizon();
+% 
+% % update the boundary discretization grid
+% meter.past_period_data.link_330.q_us = NaN*ones(length(meter.past_period_data.link_330.t_us),1);
+% 
+% meter.updateBoundaryCondition();
+% 
+% % update the initial condition based on the estimation
+% init_condition.link_390.IC =  meter.net.network_hwy.link_390.para_kc*ones(5,1)*0.2;
+% init_condition.link_390.X_grid_cum = [0:...
+%     meter.net.network_hwy.link_390.para_postkm*1000/5: ...
+%     meter.net.network_hwy.link_390.para_postkm*1000]';
+% 
+% init_condition.link_330.IC =  meter.net.network_hwy.link_330.para_kc*ones(5,1)*0.2;
+% init_condition.link_330.X_grid_cum = [0:...
+%     meter.net.network_hwy.link_330.para_postkm*1000/5: ...
+%     meter.net.network_hwy.link_330.para_postkm*1000]';
+% 
+% init_condition.link_329.IC =  meter.net.network_hwy.link_329.para_kc*ones(5,1)*0.2;
+% init_condition.link_329.X_grid_cum = [0:...
+%     meter.net.network_hwy.link_329.para_postkm*1000/5:...
+%     meter.net.network_hwy.link_329.para_postkm*1000]';
+% 
+% meter.updateInitialCondition(init_condition);
+% 
+% %=========================================
+% % build the CP; set the matrix, and solve
+% CP = optProgram;
+% % start time, end time, queue_limit .(onramp) = 2/3 length
+% CP.setConfig(meter.net, 0, meter.t_now-meter.t_horizon_start,...
+%     meter.t_now,...
+%     hard_queue_limit, soft_queue_limit);
+% 
+% % constraints
+% % Here e_est is only used to constrain initial condition which we know is 0
+% % errors.e_est = 0.5;
+% % errors.e_meas_flow = 0.04;
+% CP.setConstraints(errors);
+% CP.setWorkzoneCapacity([330], workzone_capacity);
+% CP.setOnrampMeterMaxRate([390], max_meter_rate);
+% 
+% % a meaningful objective here.
+% % The order is important
+% CP.maxDownflow([330], 1);
+% %CP.penalizeCongestion;
+% %CP.applyAdmissibleCon('all');
+% %CP.maxOnrampFlow('all');
+% 
+% % solve the CP
+% [x, fval, exitflag, output] = CP.solveProgram;
+
+%=========================================
+% post processing, check admissible and update discretization
+% function obj=postSolutionMPC(x)
+% do not solver the states inside links
+% Mos = postSolution(x, meter.net, CP.dv_index,...
+%     meter.t_sim_end-meter.t_horizon_start,...
+%     meter.dx_res, meter.dt_res,...
+%     hard_queue_limit, soft_queue_limit);
+% Mos.estimateState();
+% 
+% title_str = sprintf('%d ~ %d', meter.t_horizon_start, meter.t_sim_end);
+%         Mos.plotJuncs('all', title_str);
+
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##### SOURCE END #####
+--></body></html>

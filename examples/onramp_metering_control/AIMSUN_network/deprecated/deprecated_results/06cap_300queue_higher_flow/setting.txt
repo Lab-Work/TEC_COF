@@ -1,0 +1,15 @@
+1. Use the higher flow AIMSUN .ang file. 
+2. Set work zone capacity as 0.6 of original road capacity, 
+which is read from AIMSUN output network configuration file.
+3. Set softqueue limit as 300 meters right upstream of the work zone.
+4. Set the error as follows:
+errors = struct;
+errors.e_default = 0.2;
+errors.e_his = 0.2; % historical data error
+errors.e_est = 0.0; % estimated initial condition error
+errors.e_meas_flow = 0.0;
+workzone_capacity = 0.6;
+max_meter_rate = 900;   % veh/hr
+
+5. Consider the shock wave intersection points constraitns (using the 
+OptProgram.m class)

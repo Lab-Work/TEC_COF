@@ -1,0 +1,79 @@
+Averaged result: 300 onramp flow
+
+If using work zone road management policy:
+No control
+	Time Series	Value	Standard Deviation	Units
+	Delay Time - Car	23.12	6.78	sec/km
+	Density - Car	14.23	1.91	veh/km
+	Flow - Car	2146.20	18.49	veh/h
+	Harmonic Speed - Car	62.29	0	km/h
+	Input Count - Car	2309.50	N/A	veh
+	Input Flow - Car	2309.50	34.13	veh/h
+	Max Virtual Queue - Car	4.90	0.88	veh
+	Mean Queue - Car	4.53	1.74	veh
+	Mean Virtual Queue - Car	0.14	0.01	veh
+	Missed Turns - Car	0	0	
+	Number of Stops - Car	0.01	0.01	#/veh/km
+	Speed - Car	65.84	6.88	km/h
+	Stop Time - Car	1.81	0.59	sec/km
+	Total Travel Time - Car	136.42	17.42	h
+	Total Travelled Distance - Car	8566.63	70.05	km
+	Travel Time - Car	57.79	6.78	sec/km
+	Vehicles Inside - Car	163.30	29.89	veh
+	Vehicles Lost Inside - Car	0	0	veh
+	Vehicles Lost Outside - Car	0	0	veh
+	Vehicles Outside - Car	2146.20	18.49	veh
+	Vehicles Waiting to Enter - Car	0	0	veh
+
+	
+with control
+	Time Series	Value	Standard Deviation	Units
+	Delay Time - Car	22.22	6.04	sec/km
+	Density - Car	13.92	1.81	veh/km
+	Flow - Car	2159.80	16.92	veh/h
+	Harmonic Speed - Car	63.60	0	km/h
+	Input Count - Car	2309.50	N/A	veh
+	Input Flow - Car	2309.50	34.13	veh/h
+	Max Virtual Queue - Car	4.90	0.88	veh
+	Mean Queue - Car	34.96	15.86	veh
+	Mean Virtual Queue - Car	0.14	0.01	veh
+	Missed Turns - Car	0	0	
+	Number of Stops - Car	0.02	0	#/veh/km
+	Speed - Car	81.60	2.23	km/h
+	Stop Time - Car	14.15	5.48	sec/km
+	Total Travel Time - Car	128.75	13.01	h
+	Total Travelled Distance - Car	8665.72	70.79	km
+	Travel Time - Car	56.61	5.95	sec/km
+	Vehicles Inside - Car	149.70	29.77	veh
+	Vehicles Lost Inside - Car	0	0	veh
+	Vehicles Lost Outside - Car	0	0	veh
+	Vehicles Outside - Car	2159.80	16.92	veh
+	Vehicles Waiting to Enter - Car	0	0	veh
+
+The following is the rep 413 with no averaging
+	Time Series	Value	Standard Deviation	Units
+	Delay Time - Car	21.06	48.22	sec/km
+	Density - Car	14.31	N/A	veh/km
+	Flow - Car	2152	N/A	veh/h
+	Harmonic Speed - Car	65.21	33.11	km/h
+	Input Count - Car	2345	N/A	veh
+	Input Flow - Car	2345	N/A	veh/h
+	Max Virtual Queue - Car	5	N/A	veh
+	Mean Queue - Car	37.12	N/A	veh
+	Mean Virtual Queue - Car	0.16	N/A	veh
+	Missed Turns - Car	0	N/A	
+	Number of Stops - Car	0.02	N/A	#/veh/km
+	Speed - Car	82.02	20.86	km/h
+	Stop Time - Car	12.57	46.75	sec/km
+	Total Travel Time - Car	126.21	N/A	h
+	Total Travelled Distance - Car	8667.35	N/A	km
+	Travel Time - Car	55.21	51.01	sec/km
+	Vehicles Inside - Car	193	N/A	veh
+	Vehicles Lost Inside - Car	0	N/A	veh
+	Vehicles Lost Outside - Car	0	N/A	veh
+	Vehicles Outside - Car	2152	N/A	veh
+	Vehicles Waiting to Enter - Car	0	N/A	veh
+
+	
+
+	
