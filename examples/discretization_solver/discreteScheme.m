@@ -20,6 +20,12 @@ classdef discreteScheme < handle
         num_juncs;      % number of junctions in the network
         num_links;      % number of links in the network
         
+        t_start;        % the start time
+        t_end;          % the end time
+        
+        M;              % a struct for saving the vehicle ID solution
+        k;              % a struct for saving the nonlinearly normalized density in each cell
+        BC;             % a struct for saving the boudnary conditions
         
         
     end
@@ -45,6 +51,11 @@ classdef discreteScheme < handle
             % discretized iniital condition is saved in the first column
             % left top corner is (0,0) = 0
             self.M = struct;
+            
+            
+            % Here is the density.
+            % Just for visualization. Do not count in the computation time.
+            self.k = struct;
             
             % the discretized boundary conditions on each link
             % self.BC.linkStr.upstream = [], a array, num_steps x 1
@@ -417,14 +428,14 @@ classdef discreteScheme < handle
                     % set the network boundary data, and 
                     % temporarily set the internal boundary flow as the
                     % supply-demand
-                    if ~isempty( self.BC.(linkSTr).upstream )
+                    if ~isempty( self.BC.(linkStr).upstream )
                         % posed as weak boundary condition.
                         flows.(linkStr)(1,1) = min( self.BC.(linkStr).upstream(step-1), q_receiving(1) );
                     else
                         flows.(linkStr)(1,1) = q_receiving(1);
                     end
                     
-                    if ~isempty( self.BC.(linkSTr).downstream )
+                    if ~isempty( self.BC.(linkStr).downstream )
                         % posed as weak boundary condition.
                         flows.(linkStr)(end,1) = min( self.BC.(linkStr).downstream(step-1), q_sending(end) );
                     else
@@ -443,13 +454,13 @@ classdef discreteScheme < handle
                     sending_flows = [];
                     receiving_flows = [];
                     
-                    for outlink = self.outlabel'
+                    for outlink = self.network_junc.(juncStr).outlabel'
                         linkStr = sprintf('link_%d',outlink);
                         receiving_flows = [receiving_flows;...
                                    flows.(linkStr)(1,1)];
                     end
                     
-                    for inlink = self.inlabel'
+                    for inlink = self.network_junc.(juncStr).inlabel'
                         linkStr = sprintf('link_%d', inlink);
                         sending_flows = [sending_flows; ...
                                    flows.(linkStr)(end,1)];
@@ -460,14 +471,14 @@ classdef discreteScheme < handle
                     
                     % update the sending and receiving in flows
                     i = 1;
-                    for outlink = self.outlabel'
+                    for outlink = self.network_junc.(juncStr).outlabel'
                         linkStr = sprintf('link_%d',outlink);
                         flows.(linkStr)(1,1) = q_receive(i);
                         i = i+1;
                     end
                     
                     i = 1;
-                    for inlink = self.inlabel'
+                    for inlink = self.network_junc.(juncStr).inlabel'
                         linkStr = sprintf('link_%d', inlink);
                         flows.(linkStr)(end,1) = q_send(i);
                         i = i+1;
@@ -489,12 +500,67 @@ classdef discreteScheme < handle
             
             end
             
+            % compute the density on each link
+            for link = self.link_labels'
+                linkStr = sprintf('link_%d', link);
+                
+                self.k.(linkStr) = ( self.M.(linkStr)(1:end-1,:) - ...
+                                     self.M.(linkStr)(2:end,:) )/dx;                
+                                 
+            end
+            
+            
         end
         
+        
         %===============================================================
-        function plotSolution(self)
+        function plotSolution(self, dt, dx)
             % This function plot the solution.
+            % simply plot in three figures to check if it is correct. 
+            % The time for plotting will not be counted as the
+            % computational time.
             
+            % the fundamental diagram
+            fd = struct;
+            
+            for link = self.link_labels'
+                linkStr = sprintf('link_%d', link);
+                
+                fd.(linkStr) = LH_Tfd(self.network_hwy.(linkStr).para_vf,...
+                    self.network_hwy.(linkStr).para_w,...
+                    self.network_hwy.(linkStr).para_km);
+                
+                t_mesh_s = self.t_start:dt:self.t_end;
+                x_mesh_m = 0:dx:self.network_hwy.(linkStr).para_postkm*1000;
+                
+                % transform for better color representation
+                k_c_tmp = self.network_hwy.(linkStr).para_kc;
+                k_m_tmp = self.network_hwy.(linkStr).para_km;
+                k_trans = self.mapping(self.k.(linkStr), [0 k_c_tmp; k_c_tmp k_m_tmp],...
+                    [0 0.5*k_m_tmp; 0.5*k_m_tmp k_m_tmp]);
+                
+                %===========================================
+                scrsz = get(0,'ScreenSize');
+                figure('Position',[1 1 scrsz(3) scrsz(4)]);
+                title(sprintf('Link No. %d',link),'fontsize',24);
+                
+                colormap jet
+                
+                hold on
+                contourf(t_mesh_s, x_mesh_m(1:end-1), k_trans, 64,'LineColor', 'none')
+                caxis([0 k_m_tmp]);
+                [C h] = contour(t_mesh_s, x_mesh_m, self.M.(linkStr), 30, 'k');
+                
+                %color map transform
+                colorbar('YTick',[0 0.5*k_m_tmp k_m_tmp],...
+                    'YTickLabel',{'Zero density','Critical density','Max density'});
+                hold off;
+                
+                set(gca,'fontsize',20)
+                xlabel({'time (s)'},'fontsize',24);
+                ylabel({'space (m)'},'fontsize',24);
+                
+            end
             
             
         end
@@ -673,6 +739,32 @@ classdef discreteScheme < handle
             
         end
         
+        
+        
+        %===============================================================
+        function [k_trans] = mapping(~, k_ori, original_interval, target_interval)
+            % This function maps the values from original interval to a target interval
+            % input:
+            %       k_ori: the original values to be mapped
+            %       original_interval: nx2 matrix. Each row is an interval to be mapped
+            %           to the corresponding interval in target_interval.
+            %       target_interval: nx2 matrix. Each row is the target interval.
+            % output:
+            %       k_trans: the mapped values which has the same dimension as k_ori
+            % Example:
+            % k_trans = mapping(k,[0 k_c; k_c k_m],[0 0.5*k_m; 0.5*k_m k_m]);
+            % mapping (0~k_c)(k_c~k_,m) ==> (0~0.5*k_m)(0.5*k_m~k_m)
+            
+            k_trans = 0.0*k_ori;
+            for i = 1:size(original_interval,1)
+                isInDomain = (k_ori>=original_interval(i,1) & k_ori<=original_interval(i,2)+10e-6);
+                k_trans(isInDomain) = target_interval(i,1) + ...
+                    (k_ori(isInDomain)-original_interval(i,1))*(target_interval(i,2)-target_interval(i,1))...
+                    /(original_interval(i,2)-original_interval(i,1));
+            end
+            
+            
+        end
         
         
     end

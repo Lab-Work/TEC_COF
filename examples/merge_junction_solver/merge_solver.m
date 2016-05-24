@@ -39,8 +39,8 @@ errors.e_meas_flow = 0.0;   % measurement flow data error
 
 %%
 % Set the resolution for solving the HJ PDE on each link:
-dx_res = 1; % meters
-dt_res = 1; % seconds
+dx_res = 100; % meters
+dt_res = 10; % seconds
 
 %%
 % Set the default_para road parameters:

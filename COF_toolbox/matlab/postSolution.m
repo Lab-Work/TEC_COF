@@ -8,7 +8,7 @@ classdef postSolution < handle
     %   - It analyzes if the internal boundary flow is admissible, and
     %     updates the boundary grid by locating the wavefront intersection.
     
-    properties (Access = private)
+    properties (Access = public)
         
         x;  % column vector, solution obtained from the CP
         dv_index;   % save a copy of the index of decision variables from CP
@@ -185,7 +185,7 @@ classdef postSolution < handle
                 colormap jet
                 
                 [~, ~] = LH_plot2D(self.t_mesh_s, self.x_mesh_m.(linkStr),...
-                    self.N.(linkStr),k_trans, self.fd.(linkStr));
+                    self.N.(linkStr), k_trans, self.fd.(linkStr));
                 
                 hold on
                 % Plot the discretization markers at the upstream
