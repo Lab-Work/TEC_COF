@@ -1411,7 +1411,105 @@ classdef postSolution < handle
 
 
         end
+  
+        
+        %===============================================================
+        function M_tx = getSolutionAtTime(self, time, link, tol)
+            % This function returns the absolute vehicle ID solution at time t
+            % on link.
+            %   - It only computes the vehicle IDs at that time, hence no need 
+            %     to compute the entire density estimation diagram, faster.
+            %   - It searches shockwave intersections at that time, and the 
+            %     traffic density will be aggregated and separated by the 
+            %     intersectoin points. Hence less initial conditions, faster.
+            %   - The shockwave intersection accuracy is up to the
+            %     tolerance specified and the maximum search depth.
+            %     By default, the maximum search depth is 10.
+            % input: 
+            %       time: float, the time that we would like to compute the
+            %             solution.
+            %       tol: [dt_tol; dx_tol], the accuracy tolerance in
+            %            seconds and meters.
+            % output:
+            %       M_tx: [t, x, M]; t,x,M are all columns
+            %         t, x (including the start end position)
+            %         M, (the absolute vehicle ID, M(0,0) = 0)
+            
+            % specify the search depth and tolerance
+            search_depth = 0;
+            
+            linkStr = sprintf('link_%d', link);
 
+            len_link = self.net.network_hwy.(linkStr).para_postkm*1000;
+            
+            pt_found = self.searchShocksOnLine(link, [time; time], ...
+                [0; len_link], [NaN; NaN], search_depth, tol);
+            
+            % get the time, position, and vehicle id at two bounds
+            pt_us = [time, 0, self.absVehID(link, time, 0)];
+            pt_ds = [time, len_link, self.absVehID(link, time, len_link)];
+            
+            % all the grid points
+            M_tx = [pt_us; pt_found; pt_ds];
+
+        end
+        
+        
+        %===============================================================
+        function plotDensityOnLink(self, link, dt, dx)
+            % This function plot the solution on each link
+            % simply plot in three figures to check if it is correct. 
+            % The time for plotting will not be counted as the
+            % computational time.
+            
+            % start plotting
+            linkStr = sprintf('link_%d', link);
+            
+            % The solution N matrix, with x: space, y:time
+            M = self.N.(linkStr)';
+            
+            t_mesh = self.t_start_sim:dt:self.t_end_sim;
+            x_mesh = 0:dx:self.net.network_hwy.(linkStr).para_postkm*1000;
+            
+            t_dens = t_mesh(1:end-1)+0.5*dt;
+            x_dens = x_mesh(1:end-1)+0.5*dx;
+            
+            % ===========================================
+            % approximate the density
+            k_approx = ( M(1:end-1,:) - M(2:end,:) )/dx;    
+            
+            % transform for better color representation
+            k_c_tmp = self.net.network_hwy.(linkStr).para_kc;
+            k_m_tmp = self.net.network_hwy.(linkStr).para_km;
+            k_trans = self.mapping(k_approx, [0 k_c_tmp; k_c_tmp k_m_tmp],...
+                [0 0.5*k_m_tmp; 0.5*k_m_tmp k_m_tmp]);
+            
+            clims = [0, k_m_tmp];
+            scrsz = get(0,'ScreenSize');
+            figure('Position',[1 1 scrsz(3) scrsz(4)]);
+            
+            % imagesc(flipud(k_trans), clims, 'CDataMapping','scaled')
+            imagesc(t_dens, x_dens, flipud(k_trans), clims);
+            h = colorbar('YTick',[0 0.5*k_m_tmp k_m_tmp],...
+                'YTickLabel',{'Zero density','Critical density','Max density'});
+            colormap jet
+            set(gca,'fontsize',20)
+            title(linkStr, 'fontsize', 30);
+            xlabel({'time (s)'},'fontsize',24);
+            ylabel({'space (m)'},'fontsize',24);
+            
+            hold on
+            contour(t_mesh, fliplr(x_mesh), M, 30);
+            
+            % reverse the y ticks
+            ax = gca;
+            ax.YTick = linspace(0, self.net.network_hwy.(linkStr).para_postkm*1000, 11);
+            ax.YTickLabel = cellstr(num2str( flipud(ax.YTick(:))));
+
+            
+            
+        end
+        
         
         
     end
@@ -2256,7 +2354,8 @@ classdef postSolution < handle
         
         %===============================================================
         function M = absVehID(self, link, times, positions)
-            % This function computes the Moskowitz solution at (t,x) given initial, upstream and downstream boudnary conditions.
+            % This function computes the Moskowitz solution at (t,x) given 
+            % initial, upstream and downstream boudnary conditions.
             % input:
             %       link: the link id to be sampled
             %       time: column vector, the time of the sampled points
@@ -2471,9 +2570,9 @@ classdef postSolution < handle
             %       tol: 2x1 float [dt_tol; dx_tol] the minimal value that we would further
             %            split and locate the intersection point
             % output:
-            %       pt_found: struct, .time, a column vector
-            %                         .position, a column vector, in meters
-            %                         .vehicle_id, a column vector, absolute vehicle ID
+            %       pt_found: [t, x, veh_id]
+            %                 t, x, and veh_id are all column vectors. Note
+            %                 the two boundaries are not included.
             
             pt_found = [];
 

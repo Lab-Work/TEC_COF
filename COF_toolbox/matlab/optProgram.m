@@ -301,7 +301,7 @@ classdef optProgram < handle
             self.size_Aeq = size(self.Aeq);
             
             % if we have junction, then add auxiliary decision variable
-            % which is the L1 norm e = |q1 - Rq2|
+            % which is the L1 norm e = |q2 - Rq1|
             % The priority parameter is only needed for merge and diverge.
             % The onrampjunc and offrampjunc are assumed to be controllable
             for junc = self.net.junc_labels'
@@ -322,7 +322,7 @@ classdef optProgram < handle
                         length(self.net.network_junc.(juncStr).T);
                 end
                 
-                % Add additional constraints e = |q1-Rq2|
+                % Add additional constraints e = |q2-Rq1|
                 tmpMatrix = zeros(0, self.dv_index_max);
                     
                 if strcmp(self.net.network_junc.(juncStr).type_junc,'merge')

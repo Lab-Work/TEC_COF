@@ -12,8 +12,8 @@ timing_start = now;
 
 %%
 % Set the resolution for solving the HJ PDE on each link:
-dx_res = 10; % meters
-dt_res = 0.3; % seconds
+dx_res = 1; % meters
+dt_res = 0.03; % seconds
 
 t_horizon_start = 0;
 sim_steps = 5;
@@ -93,8 +93,8 @@ net.setInitialCon(Ini);
 %%
 % Set the boundary condition. The downstream boundary flow is not set to
 % aviod infeasibility.
-q1_us_data = net.network_hwy.link_1.para_qmax*[1, 0, 1, 1, 1]';
-q2_us_data = net.network_hwy.link_2.para_qmax*[1, 0, 1, 1, 1]';
+q1_us_data = net.network_hwy.link_1.para_qmax*[1, 0.6, 0.8, 0.8, 0.8]';
+q2_us_data = net.network_hwy.link_2.para_qmax*[1, 0.6, 0.8, 0.8, 0.8]';
 q3_ds_data = net.network_hwy.link_3.para_qmax*[1, 0, 1, 0, 1]';
 
 %%
@@ -190,11 +190,23 @@ fprintf('Solving the junction took: %f s\n', (timing_mid-timing_start)*86400);
 fprintf('Solving the states at time t = %d s took: %f s\n',t_sol, (timing_end-timing_mid)*86400);
 fprintf('Total time: %f\n', (timing_end-timing_start)*86400);
 
-
+% For visualizing the result.
 Mos.estimateState();
 for link = net.link_labels'
     
     Mos.plotDensityOnLink(link, dt_res, dx_res);
+    
+    % over lay the computed shockwave intersection point
+    hold on
+    linkStr = sprintf('link_%d', link);
+    scatter(M_exact.(linkStr)(:,1),...
+            net.network_hwy.(linkStr).para_postkm*1000 - M_exact.(linkStr)(:,2),...
+            100,...
+            'MarkerEdgeColor',[1 1 1],...
+            'MarkerFaceColor',[1 1 1],...
+            'LineWidth',1.5);
+    hold off
+    
     
 end
     

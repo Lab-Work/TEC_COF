@@ -500,6 +500,12 @@ classdef discreteScheme < handle
             
             end
             
+        end
+        
+        %===============================================================
+        function computeDensity(self, dx)
+            % This function computes the density using the M solutions
+            
             % compute the density on each link
             for link = self.link_labels'
                 linkStr = sprintf('link_%d', link);
@@ -509,58 +515,57 @@ classdef discreteScheme < handle
                                  
             end
             
-            
         end
         
         
         %===============================================================
-        function plotSolution(self, dt, dx)
-            % This function plot the solution.
+        function plotDensityOnLink(self, link, dt, dx)
+            % This function plot the solution on each link
             % simply plot in three figures to check if it is correct. 
             % The time for plotting will not be counted as the
             % computational time.
             
-            % the fundamental diagram
-            fd = struct;
+            % first compute the density.
+            self.computeDensity(dx);
             
-            for link = self.link_labels'
-                linkStr = sprintf('link_%d', link);
-                
-                fd.(linkStr) = LH_Tfd(self.network_hwy.(linkStr).para_vf,...
-                    self.network_hwy.(linkStr).para_w,...
-                    self.network_hwy.(linkStr).para_km);
-                
-                t_mesh_s = self.t_start:dt:self.t_end;
-                x_mesh_m = 0:dx:self.network_hwy.(linkStr).para_postkm*1000;
-                
-                % transform for better color representation
-                k_c_tmp = self.network_hwy.(linkStr).para_kc;
-                k_m_tmp = self.network_hwy.(linkStr).para_km;
-                k_trans = self.mapping(self.k.(linkStr), [0 k_c_tmp; k_c_tmp k_m_tmp],...
-                    [0 0.5*k_m_tmp; 0.5*k_m_tmp k_m_tmp]);
-                
-                %===========================================
-                scrsz = get(0,'ScreenSize');
-                figure('Position',[1 1 scrsz(3) scrsz(4)]);
-                title(sprintf('Link No. %d',link),'fontsize',24);
-                
-                colormap jet
-                
-                hold on
-                contourf(t_mesh_s, x_mesh_m(1:end-1), k_trans, 64,'LineColor', 'none')
-                caxis([0 k_m_tmp]);
-                [C h] = contour(t_mesh_s, x_mesh_m, self.M.(linkStr), 30, 'k');
-                
-                %color map transform
-                colorbar('YTick',[0 0.5*k_m_tmp k_m_tmp],...
-                    'YTickLabel',{'Zero density','Critical density','Max density'});
-                hold off;
-                
-                set(gca,'fontsize',20)
-                xlabel({'time (s)'},'fontsize',24);
-                ylabel({'space (m)'},'fontsize',24);
-                
-            end
+            % start plotting
+            linkStr = sprintf('link_%d', link);
+            
+            t_mesh_s = self.t_start:dt:self.t_end;
+            x_mesh_m = 0:dx:self.network_hwy.(linkStr).para_postkm*1000;
+            
+            t_dens = t_mesh_s(1:end-1)+0.5*dt;
+            x_dens = x_mesh_m(1:end-1)+0.5*dx;
+            
+            % ===========================================
+            % transform for better color representation
+            k_c_tmp = self.network_hwy.(linkStr).para_kc;
+            k_m_tmp = self.network_hwy.(linkStr).para_km;
+            k_trans = self.mapping(self.k.(linkStr), [0 k_c_tmp; k_c_tmp k_m_tmp],...
+                [0 0.5*k_m_tmp; 0.5*k_m_tmp k_m_tmp]);
+            
+            clims = [0, k_m_tmp];
+            scrsz = get(0,'ScreenSize');
+            figure('Position',[1 1 scrsz(3) scrsz(4)]);
+            
+            % imagesc(flipud(k_trans), clims, 'CDataMapping','scaled')
+            imagesc(t_dens, x_dens, flipud(k_trans), clims);
+            h = colorbar('YTick',[0 0.5*k_m_tmp k_m_tmp],...
+                'YTickLabel',{'Zero density','Critical density','Max density'});
+            colormap jet
+            set(gca,'fontsize',20)
+            title(linkStr, 'fontsize', 30);
+            xlabel({'time (s)'},'fontsize',24);
+            ylabel({'space (m)'},'fontsize',24);
+            
+            hold on
+            contour(t_mesh_s, fliplr(x_mesh_m), self.M.(linkStr), 30);
+            
+            % reverse the y ticks
+            ax = gca;
+            ax.YTick = linspace(0, self.network_hwy.(linkStr).para_postkm*1000, 11);
+            ax.YTickLabel = cellstr(num2str( flipud(ax.YTick(:))));
+
             
             
         end

@@ -12,15 +12,17 @@ clearvars -except dbg
 
 % profile on
 
+timing_start = now;
+
 %%
 % Set the resolution for solving the HJ PDE on each link:
-dx_res = 1; % meters
-dt_res = 0.03; % seconds
+dx_res = 50; % meters
+dt_res = 1.5; % seconds
 
 t_horizon_start = 0;
 sim_steps = 5;
-step_length = 6;   % seconds
-t_horizon_end = 30;
+step_length = 30;   % seconds
+t_horizon_end = sim_steps*step_length;
 
 %%
 % Set the default_para road parameters:
@@ -42,23 +44,6 @@ default_para.v_max = 80*1609/3600;
 len_link1 = 1;       % km
 len_link2 = 1;
 len_link3 = 1;
-
-%%
-% Percent error of the full range. For example:
-%
-% $$[q_{meas}-e_{measflow}\times q_{max} q_{meas}+e_{measflow}\times
-% q_{max}]$$
-% 
-% $$[\rho_{est}-e_{est}\times \rho_c, \rho_{est}+e_{est}\times \rho_c]$$
-%
-% In this merge solver example, the initial and boundary condition errors
-% are assumed to be exact. Errors can be added to accommodate measurement noise
-% in traffic estimation applications.
-errors = struct;
-errors.e_default = 0.0; % default error used if others are not defined.
-errors.e_his = 0.0; % historical flow data error
-errors.e_est = 0.0; % estimated initial condition error
-errors.e_meas_flow = 0.0;   % measurement flow data error
 
 
 %% 
@@ -86,8 +71,8 @@ solver.setInitialCon(Ini);
 %%
 % Set the boundary condition. The downstream boundary flow is not set to
 % aviod infeasibility.
-q1_us_data = solver.network_hwy.link_1.para_qmax*[1, 0, 1, 1, 1]';
-q2_us_data = solver.network_hwy.link_2.para_qmax*[1, 0, 1, 1, 1]';
+q1_us_data = solver.network_hwy.link_1.para_qmax*[1, 0.6, 0.8, 0.8, 0.8]';
+q2_us_data = solver.network_hwy.link_2.para_qmax*[1, 0.6, 0.8, 0.8, 0.8]';
 q3_ds_data = solver.network_hwy.link_3.para_qmax*[1, 0, 1, 0, 1]';
 
 solver.setBoundaryConForLink(1, q1_us_data, [], T_init_grid, T_init_grid);
@@ -103,9 +88,16 @@ solver.discretizeNet(dt_res, dx_res);
 solver.computeSolution(dt_res, dx_res);
 
 
-%% Plot the solution
-solver.plotSolution(dt_res, dx_res);
+timing_end = now;
 
+fprintf('Total time: %f\n', (timing_end-timing_start)*86400);
+
+
+
+%% Plot the solution
+for link = solver.link_labels'
+    solver.plotDensityOnLink(link, dt_res, dx_res);
+end
 
 
 
