@@ -334,7 +334,7 @@ classdef exactMergeSolver < handle
         
         
         %===============================================================
-        function computeExactInternalBoundaryFlows(self, T_junc_init, tol)
+        function computeExactInternalBoundaryFlows(self, T_junc_init, tol, max_loops)
             % This function computes the exact internal boudnary flows at
             % the junction using a convex program and the bi-section
             % algorithm
@@ -342,6 +342,8 @@ classdef exactMergeSolver < handle
             %       T_junc_init, the initial grid at the junction.
             %       tol, number of vehicles, the tolerance for a solution
             %           to be considered as the exact solution
+            %       max_loops: the maximum number of iterations for
+            %       regridding
             
             % -------------------------------------------------------
             % Only one merge junction is supported in this version
@@ -355,13 +357,14 @@ classdef exactMergeSolver < handle
             
             % set the initial grid
             T_junc = T_junc_init;
+            % T_junc = self.getInitialJuncGrid();
             
             % -------------------------------------------------------
             % iteratively update the junction grid to get the exact
             % solution
             gotExact = false;
             loopCounter = 0;
-            while gotExact == false && loopCounter <=50
+            while gotExact == false && loopCounter <= max_loops
                 
                 loopCounter = loopCounter + 1;
                 
@@ -386,7 +389,7 @@ classdef exactMergeSolver < handle
                 
             end
             
-            fprintf('\nGot exact solutions at the junction.\n')
+            % fprintf('\nGot exact solutions at the junction.\n')
             
             % -------------------------------------------------------
             % Now set the exact solution and associated boundary grid to
@@ -584,7 +587,7 @@ classdef exactMergeSolver < handle
             
             clims = [0, k_m_tmp];
             scrsz = get(0,'ScreenSize');
-            figure('Position',[1 1 scrsz(3) scrsz(4)]);
+            figure('Position',[1 1 scrsz(3) scrsz(4)/2]);
             
             % imagesc(flipud(k_trans), clims, 'CDataMapping','scaled')
             imagesc(t_dens, x_dens, flipud(k_trans), clims);
@@ -597,7 +600,7 @@ classdef exactMergeSolver < handle
             ylabel({'space (m)'},'fontsize',24);
             
             hold on
-            contour(t_mesh_s, fliplr(x_mesh_m), self.M.(linkStr), 30);
+            contour(t_mesh_s, fliplr(x_mesh_m), self.M.(linkStr), 20);
             
             % reverse the y ticks
             ax = gca;
@@ -608,7 +611,6 @@ classdef exactMergeSolver < handle
             
         end
         
-       
     end
     
     methods (Access = private)
@@ -902,8 +904,8 @@ classdef exactMergeSolver < handle
                     cplexlp(self.f, self.Aineq, self.bineq, [], [],...
                     self.lb, self.ub);
                 
-                fprintf ('\nSolution status = %s \n', output.cplexstatusstring);
-                fprintf ('Solution value = %f \n', fval);
+%                 fprintf ('\nSolution status = %s \n', output.cplexstatusstring);
+%                 fprintf ('Solution value = %f \n', fval);
             catch m
                 throw (m);
             end
@@ -1260,6 +1262,44 @@ classdef exactMergeSolver < handle
         end
  
         
+        
+        %===============================================================
+        function t_found = getInitialJuncGrid(self)
+            % DO NOT USE
+            
+            searchDepth = 0;
+            d_t = 1.0e-3;
+            
+            self.t_ref = self.t_start;
+            
+            juncStr = sprintf('junc_%d', self.junc_labels);
+            
+            t_found_s1 = searchShocksAtStep(self,...
+                [self.t_start, self.t_end]', [NaN, NaN]', [NaN, NaN]',...
+                 self.network_junc.(juncStr).inlabel(1),...
+                 'downstream', searchDepth, d_t);
+            
+            t_found_s2 = searchShocksAtStep(self,...
+                [self.t_start, self.t_end]', [NaN, NaN]', [NaN, NaN]',...
+                self.network_junc.(juncStr).inlabel(2),...
+                'downstream', searchDepth, d_t);
+            
+            t_found_r = searchShocksAtStep(self,...
+                [self.t_start, self.t_end]', [NaN, NaN]', [NaN, NaN]',...
+                self.network_junc.(juncStr).outlabel,...
+                'upstream', searchDepth, d_t);
+            
+            t_found = self.unique_tol([t_found_s1; t_found_s2; t_found_r],...
+                1.0e-8);
+            
+            
+            
+        end
+        
+        
+        
+        
+        
         % ===============================================================
         % - Compute the stepwise exact solution at a boundary step, 
         %   using the initial condition, the upstream and downstream
@@ -1319,40 +1359,42 @@ classdef exactMergeSolver < handle
             num_us_pre_steps = sum(self.network_hwy.(linkStr).T_us_cum < t_sample);
             num_ds_pre_steps = sum(self.network_hwy.(linkStr).T_ds_cum < t_sample);
             
-            
-            % First extract the boundary conditions that to be considered
-            % for computing the vehilce label at the sampling point
-            BC_us = [];
-            BC_us(:,1) = self.network_hwy.(linkStr).T_us_cum(1:num_us_pre_steps);
-            BC_us(:,2) = self.network_hwy.(linkStr).T_us_cum(2:num_us_pre_steps+1);
-            BC_us(num_us_pre_steps, 2) = t_sample;
-            BC_us(:,3) = self.network_hwy.(linkStr).BC_us(1:num_us_pre_steps);
-            
-            BC_ds = [];
-            BC_ds(:,1) = self.network_hwy.(linkStr).T_ds_cum(1:num_ds_pre_steps);
-            BC_ds(:,2) = self.network_hwy.(linkStr).T_ds_cum(2:num_ds_pre_steps+1);
-            BC_ds(num_ds_pre_steps, 2) = t_sample;
-            BC_ds(:,3) = self.x( self.dv_index.(linkStr)(1):...
-                                self.dv_index.(linkStr)(1) - 1 + num_ds_pre_steps);
-            
-            % Second compute the absolute vehicle ID
-            BC_us_num_veh = (BC_us(:,2) - BC_us(:,1)).*BC_us(:,3);
-            BC_cum_us_M = [0; cumsum(BC_us_num_veh)];
-            BC_cum_us_M(end) = [];
-            
-            BC_ds_num_veh = (BC_ds(:,2) - BC_ds(:,1)).*BC_ds(:,3);
-            BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
-            BC_cum_ds_M(end) = [];
-            
-            % remove the nonexact boundary condition
-            if sum( self.network_hwy.(linkStr).T_ds_cum > self.t_ref &...
-                    self.network_hwy.(linkStr).T_ds_cum < t_sample ) ~= 0
-                % remove the last two pieces of downstream conditions
-                BC_ds( max(1,num_ds_pre_steps-1):num_ds_pre_steps , 3) = NaN;
-            else
-                % remove the last piece of downstream condition
-                BC_ds( num_ds_pre_steps , 3) = NaN;
+            if num_us_pre_steps ~= 0
+                % First extract the boundary conditions that to be considered
+                % for computing the vehilce label at the sampling point
+                BC_us = [];
+                BC_us(:,1) = self.network_hwy.(linkStr).T_us_cum(1:num_us_pre_steps);
+                BC_us(:,2) = self.network_hwy.(linkStr).T_us_cum(2:num_us_pre_steps+1);
+                BC_us(num_us_pre_steps, 2) = t_sample;
+                BC_us(:,3) = self.network_hwy.(linkStr).BC_us(1:num_us_pre_steps);
+                BC_us_num_veh = (BC_us(:,2) - BC_us(:,1)).*BC_us(:,3);
+                BC_cum_us_M = [0; cumsum(BC_us_num_veh)];
+                BC_cum_us_M(end) = [];
             end
+            
+            if num_ds_pre_steps ~= 0
+                BC_ds = [];
+                BC_ds(:,1) = self.network_hwy.(linkStr).T_ds_cum(1:num_ds_pre_steps);
+                BC_ds(:,2) = self.network_hwy.(linkStr).T_ds_cum(2:num_ds_pre_steps+1);
+                BC_ds(num_ds_pre_steps, 2) = t_sample;
+                BC_ds(:,3) = self.x( self.dv_index.(linkStr)(1):...
+                                    self.dv_index.(linkStr)(1) - 1 + num_ds_pre_steps);
+                BC_ds_num_veh = (BC_ds(:,2) - BC_ds(:,1)).*BC_ds(:,3);
+                BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
+                BC_cum_ds_M(end) = [];
+            
+            
+                % remove the nonexact boundary condition
+                if sum( self.network_hwy.(linkStr).T_ds_cum > self.t_ref &...
+                        self.network_hwy.(linkStr).T_ds_cum < t_sample ) ~= 0
+                    % remove the last two pieces of downstream conditions
+                    BC_ds( max(1,num_ds_pre_steps-1):num_ds_pre_steps , 3) = NaN;
+                else
+                    % remove the last piece of downstream condition
+                    BC_ds( num_ds_pre_steps , 3) = NaN;
+                end
+            end
+            
             
             % points coordinates
             len_link = self.network_hwy.(linkStr).para_postkm*1000;
@@ -1410,57 +1452,60 @@ classdef exactMergeSolver < handle
                     - k_m*t_array(i)*w);
                 abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
                 
-                %UPSTREAM==================================================
-                % now check the upstream conditions, only apply those
-                % boundary conditions that are not NaN
-                notNaN = ~isnan(BC_us(:,3));
+                if num_us_pre_steps ~= 0
+                    %UPSTREAM==================================================
+                    % now check the upstream conditions, only apply those
+                    % boundary conditions that are not NaN
+                    notNaN = ~isnan(BC_us(:,3));
+
+                    inCharacterDomain = BC_us(:,1)+ position/v_f <= t_array(i) &...
+                                        BC_us(:,2)+ position/v_f >= t_array(i); 
+                    activeCharacterDomain = notNaN & inCharacterDomain;
+
+                    inFanDomain = BC_us(:,2)+ position/v_f < t_array(i);
+                    activeFanDomain = notNaN & inFanDomain;
+
+                    % solution in characteristic domain
+                    tmp_M = min( BC_cum_us_M(activeCharacterDomain,1) +...
+                        BC_us(activeCharacterDomain,3).*(t_array(i) - position/v_f - ...
+                        BC_us(activeCharacterDomain,1)) );
+                    abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
+                    % solution in fan domain
+                    tmp_M = min( BC_cum_us_M(activeFanDomain,1) +...
+                        BC_us_num_veh(activeFanDomain,1) + ...
+                        k_c*v_f.*(t_array(i) - position/v_f - ...
+                        BC_us(activeFanDomain,2)) );
+                    abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
+                end
                 
-                inCharacterDomain = BC_us(:,1)+ position/v_f <= t_array(i) &...
-                                    BC_us(:,2)+ position/v_f >= t_array(i); 
-                activeCharacterDomain = notNaN & inCharacterDomain;
                 
-                inFanDomain = BC_us(:,2)+ position/v_f < t_array(i);
-                activeFanDomain = notNaN & inFanDomain;
-                
-                % solution in characteristic domain
-                tmp_M = min( BC_cum_us_M(activeCharacterDomain,1) +...
-                    BC_us(activeCharacterDomain,3).*(t_array(i) - position/v_f - ...
-                    BC_us(activeCharacterDomain,1)) );
-                abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
-                % solution in fan domain
-                tmp_M = min( BC_cum_us_M(activeFanDomain,1) +...
-                    BC_us_num_veh(activeFanDomain,1) + ...
-                    k_c*v_f.*(t_array(i) - position/v_f - ...
-                    BC_us(activeFanDomain,2)) );
-                abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
-                
-                
-                %DOWNSTREAM==================================================
-                % now check the upstream conditions
-                notNaN = ~isnan(BC_ds(:,3));
-                
-                inCharacterDomain = BC_ds(:,1) + (position - len_link)/w <= t_array(i) &...
-                                    BC_ds(:,2)+ (position - len_link)/w >= t_array(i);
-                activeCharacterDomain = notNaN & inCharacterDomain;
-                
-                inFanDomain = BC_ds(:,2)+ (position - len_link)/w < t_array(i);
-                activeFanDomain = notNaN & inFanDomain;
-                
-                % solution in characteristic domain
-                tmp_M = min( BC_cum_ds_M(activeCharacterDomain,1) +...
-                    BC_ds(activeCharacterDomain,3).*(t_array(i) -...
-                    (position - len_link)/w - ...
-                    BC_ds(activeCharacterDomain,1))...
-                    - k_m*(position - len_link));
-                abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
-                % solution in fan domain
-                tmp_M = min( BC_cum_ds_M(activeFanDomain,1) +...
-                    BC_ds_num_veh(activeFanDomain,1) + ...
-                    k_c*v_f.*(t_array(i) - (position-len_link)/v_f - ...
-                    BC_ds(activeFanDomain,2)) );
-                
-                abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
-                
+                if num_ds_pre_steps ~= 0
+                    %DOWNSTREAM==================================================
+                    % now check the upstream conditions
+                    notNaN = ~isnan(BC_ds(:,3));
+
+                    inCharacterDomain = BC_ds(:,1) + (position - len_link)/w <= t_array(i) &...
+                                        BC_ds(:,2)+ (position - len_link)/w >= t_array(i);
+                    activeCharacterDomain = notNaN & inCharacterDomain;
+
+                    inFanDomain = BC_ds(:,2)+ (position - len_link)/w < t_array(i);
+                    activeFanDomain = notNaN & inFanDomain;
+
+                    % solution in characteristic domain
+                    tmp_M = min( BC_cum_ds_M(activeCharacterDomain,1) +...
+                        BC_ds(activeCharacterDomain,3).*(t_array(i) -...
+                        (position - len_link)/w - ...
+                        BC_ds(activeCharacterDomain,1))...
+                        - k_m*(position - len_link));
+                    abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
+                    % solution in fan domain
+                    tmp_M = min( BC_cum_ds_M(activeFanDomain,1) +...
+                        BC_ds_num_veh(activeFanDomain,1) + ...
+                        k_c*v_f.*(t_array(i) - (position-len_link)/v_f - ...
+                        BC_ds(activeFanDomain,2)) );
+
+                    abs_M(i) = self.minNonEmpty(abs_M(i), tmp_M);
+                end
                 
             end % end for each t (here we just have (t_ref and t) )
             
@@ -1532,58 +1577,64 @@ classdef exactMergeSolver < handle
             num_us_pre_steps = sum(self.network_hwy.(linkStr).T_us_cum < t_sample);
             num_ds_pre_steps = sum(self.network_hwy.(linkStr).T_ds_cum < t_sample);
             
+            if num_us_pre_steps ~= 0
+                % First extract the boundary conditions that to be considered
+                % for computing the vehilce label at the sampling point
+                BC_us = [];
+                BC_us(:,1) = self.network_hwy.(linkStr).T_us_cum(1:num_us_pre_steps);
+                BC_us(:,2) = self.network_hwy.(linkStr).T_us_cum(2:num_us_pre_steps+1);
+                BC_us(num_us_pre_steps, 2) = t_sample;
+
+                % Make sure this is the downstream link of a merge
+                if self.num_juncs ~= 1
+                    error('Current version of the code only supports one junction in the network.')
+                end
+                juncStr = sprintf('junc_%d', self.junc_labels);
+                if link ~= self.network_junc.(juncStr).outlabel
+                    error('maxReceivingAtStep() should only be applied to the downstream link of the merge.')
+                end
+                if ~strcmp(self.network_junc.(juncStr).type_junc, 'merge')
+                    error('Current version of the code only supports merge junction.')
+                end
+                % The decision variable only contains the upstream outflows
+                inlinkStr1 = sprintf('link_%d', self.network_junc.(juncStr).inlabel(1));
+                inlinkStr2 = sprintf('link_%d', self.network_junc.(juncStr).inlabel(2));
+
+                BC_us(:,3) = self.x( self.dv_index.(inlinkStr1)(1):...
+                                     self.dv_index.(inlinkStr1)(1) - 1 + num_us_pre_steps)...
+                           + self.x( self.dv_index.(inlinkStr2)(1):...
+                                     self.dv_index.(inlinkStr2)(1) - 1 + num_us_pre_steps);
             
-            % First extract the boundary conditions that to be considered
-            % for computing the vehilce label at the sampling point
-            BC_us = [];
-            BC_us(:,1) = self.network_hwy.(linkStr).T_us_cum(1:num_us_pre_steps);
-            BC_us(:,2) = self.network_hwy.(linkStr).T_us_cum(2:num_us_pre_steps+1);
-            BC_us(num_us_pre_steps, 2) = t_sample;
-            
-            % Make sure this is the downstream link of a merge
-            if self.num_juncs ~= 1
-                error('Current version of the code only supports one junction in the network.')
+                % remove nonexact upstream boundary condition
+                if sum( self.network_hwy.(linkStr).T_us_cum > self.t_ref &...
+                        self.network_hwy.(linkStr).T_us_cum < t_sample) ~= 0
+                    % remove the last two pieces of upstream conditions
+                    BC_us( max(1, num_us_pre_steps-1) : num_us_pre_steps, 3) = NaN;
+                else
+                    % remove the last piece of upstream condition
+                    BC_us( num_us_pre_steps, 3) = NaN;
+                end
             end
-            juncStr = sprintf('junc_%d', self.junc_labels);
-            if link ~= self.network_junc.(juncStr).outlabel
-                error('maxReceivingAtStep() should only be applied to the downstream link of the merge.')
+                             
+            if num_ds_pre_steps ~= 0                 
+                BC_ds = [];                 
+                BC_ds(:,1) = self.network_hwy.(linkStr).T_ds_cum(1:num_ds_pre_steps);
+                BC_ds(:,2) = self.network_hwy.(linkStr).T_ds_cum(2:num_ds_pre_steps+1);
+                BC_ds(num_ds_pre_steps, 2) = t_sample;
+                BC_ds(:,3) = self.network_hwy.(linkStr).BC_ds(1:num_ds_pre_steps);
+
+                % Second compute the absolute vehicle ID
+                BC_us_num_veh = (BC_us(:,2) - BC_us(:,1)).*BC_us(:,3);
+                BC_cum_us_M = [0; cumsum(BC_us_num_veh)];
+                BC_cum_us_M(end) = [];
+
+                BC_ds_num_veh = (BC_ds(:,2) - BC_ds(:,1)).*BC_ds(:,3);
+                BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
+                BC_cum_ds_M(end) = [];
             end
-            if ~strcmp(self.network_junc.(juncStr).type_junc, 'merge')
-                error('Current version of the code only supports merge junction.')
-            end
-            % The decision variable only contains the upstream outflows
-            inlinkStr1 = sprintf('link_%d', self.network_junc.(juncStr).inlabel(1));
-            inlinkStr2 = sprintf('link_%d', self.network_junc.(juncStr).inlabel(2));
             
-            BC_us(:,3) = self.x( self.dv_index.(inlinkStr1)(1):...
-                                 self.dv_index.(inlinkStr1)(1) - 1 + num_us_pre_steps)...
-                       + self.x( self.dv_index.(inlinkStr2)(1):...
-                                 self.dv_index.(inlinkStr2)(1) - 1 + num_us_pre_steps);
             
-            BC_ds = [];                 
-            BC_ds(:,1) = self.network_hwy.(linkStr).T_ds_cum(1:num_ds_pre_steps);
-            BC_ds(:,2) = self.network_hwy.(linkStr).T_ds_cum(2:num_ds_pre_steps+1);
-            BC_ds(num_ds_pre_steps, 2) = t_sample;
-            BC_ds(:,3) = self.network_hwy.(linkStr).BC_ds(1:num_ds_pre_steps);
             
-            % Second compute the absolute vehicle ID
-            BC_us_num_veh = (BC_us(:,2) - BC_us(:,1)).*BC_us(:,3);
-            BC_cum_us_M = [0; cumsum(BC_us_num_veh)];
-            BC_cum_us_M(end) = [];
-            
-            BC_ds_num_veh = (BC_ds(:,2) - BC_ds(:,1)).*BC_ds(:,3);
-            BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
-            BC_cum_ds_M(end) = [];
-            
-            % remove nonexact upstream boundary condition
-            if sum( self.network_hwy.(linkStr).T_us_cum > self.t_ref &...
-                    self.network_hwy.(linkStr).T_us_cum < t_sample) ~= 0
-                % remove the last two pieces of upstream conditions
-                BC_us( max(1, num_us_pre_steps-1) : num_us_pre_steps, 3) = NaN;
-            else
-                % remove the last piece of upstream condition
-                BC_us( num_us_pre_steps, 3) = NaN;
-            end
             
             len_link = self.network_hwy.(linkStr).para_postkm*1000;
             position = 0;
@@ -1908,8 +1959,25 @@ classdef exactMergeSolver < handle
                                 steps.(juncStr) = i;
                                 break
                             else
-                                % exact solutution
-                                continue
+                                % select a random point within this time
+                                % itnerval and check if it also satisfies
+                                % dt_random = rand;    % random numebr in [0,1]
+                                dt_random = 0.25;
+                                t_random = t_check_start + ...
+                                    (t_check_end-t_check_start)*dt_random;
+                                d_M_random = self.exactSolutionAtStep( t_random, junc);
+                                
+                                if abs( q_s1(i)*T_grid(i)*dt_random - d_M_random(1) )...
+                                        > exactTol ||...
+                                    abs( q_s2(i)*T_grid(i)*dt_random - d_M_random(2) )...
+                                        > exactTol
+                                    TF = false;
+                                    steps.(juncStr) = i;
+                                    break 
+                                else
+                                    % the solution is exact
+                                    continue
+                                end
                             end
                         end
                     end     % end each step
@@ -2973,28 +3041,32 @@ classdef exactMergeSolver < handle
                 % the number of boundary steps we need to take into account
                 num_us_pre_steps = sum(self.network_hwy.(linkStr).T_us_cum < time);
                 num_ds_pre_steps = sum(self.network_hwy.(linkStr).T_ds_cum < time);
-
-                 % First extract the boundary conditions that to be considered
-                % for computing the vehilce label at the sampling point
-                BC_us(:,1) = self.network_hwy.(linkStr).T_us_cum(1:num_us_pre_steps);
-                BC_us(:,2) = self.network_hwy.(linkStr).T_us_cum(2:num_us_pre_steps+1);
-                BC_us(num_us_pre_steps, 2) = time;
-                BC_us(:,3) = self.network_hwy.(linkStr).BC_us(1:num_us_pre_steps);
                 
-                BC_ds(:,1) = self.network_hwy.(linkStr).T_ds_cum(1:num_ds_pre_steps);
-                BC_ds(:,2) = self.network_hwy.(linkStr).T_ds_cum(2:num_ds_pre_steps+1);
-                BC_ds(num_ds_pre_steps, 2) = time;
-                BC_ds(:,3) = self.network_hwy.(linkStr).BC_ds(1:num_ds_pre_steps);
-
-                % Second compute the absolute vehicle ID at boundaries
-                BC_us_num_veh = (BC_us(:,2) - BC_us(:,1)).*BC_us(:,3);
-                BC_cum_us_M = [0; cumsum(BC_us_num_veh)];
-                BC_cum_us_M(end) = [];
+                if num_us_pre_steps ~=0
+                    % First extract the boundary conditions that to be considered
+                    % for computing the vehilce label at the sampling point
+                    BC_us(:,1) = self.network_hwy.(linkStr).T_us_cum(1:num_us_pre_steps);
+                    BC_us(:,2) = self.network_hwy.(linkStr).T_us_cum(2:num_us_pre_steps+1);
+                    BC_us(num_us_pre_steps, 2) = time;
+                    BC_us(:,3) = self.network_hwy.(linkStr).BC_us(1:num_us_pre_steps);
+                    
+                    % Second compute the absolute vehicle ID at boundaries
+                    BC_us_num_veh = (BC_us(:,2) - BC_us(:,1)).*BC_us(:,3);
+                    BC_cum_us_M = [0; cumsum(BC_us_num_veh)];
+                    BC_cum_us_M(end) = [];
+                end
                 
-                BC_ds_num_veh = (BC_ds(:,2) - BC_ds(:,1)).*BC_ds(:,3);
-                BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
-                BC_cum_ds_M(end) = [];
-
+                if num_ds_pre_steps ~= 0
+                    BC_ds(:,1) = self.network_hwy.(linkStr).T_ds_cum(1:num_ds_pre_steps);
+                    BC_ds(:,2) = self.network_hwy.(linkStr).T_ds_cum(2:num_ds_pre_steps+1);
+                    BC_ds(num_ds_pre_steps, 2) = time;
+                    BC_ds(:,3) = self.network_hwy.(linkStr).BC_ds(1:num_ds_pre_steps);
+                    
+                    BC_ds_num_veh = (BC_ds(:,2) - BC_ds(:,1)).*BC_ds(:,3);
+                    BC_cum_ds_M = [0; cumsum(BC_ds_num_veh) ] + IC_total_num_veh;
+                    BC_cum_ds_M(end) = [];
+                end
+                
                 %==========================================================
                 % compute the solution associated to the initial condition
                 lowerThanKc = (IC(:,3) <= k_c);
@@ -3045,57 +3117,60 @@ classdef exactMergeSolver < handle
                     - k_c.*(position - w*time - IC(activeFanDomain,2)) ...
                     - k_m*time*w);
                 M(i) = self.minNonEmpty(M(i), tmp_M);
+                
+                if num_us_pre_steps ~=0
+                    %UPSTREAM==================================================
+                    % now check the upstream conditions, only apply those
+                    % boundary conditions that are not NaN
+                    notNaN = ~isnan(BC_us(:,3));
 
-                %UPSTREAM==================================================
-                % now check the upstream conditions, only apply those
-                % boundary conditions that are not NaN
-                notNaN = ~isnan(BC_us(:,3));
-                
-                inCharacterDomain = BC_us(:,1)+ position/v_f <= time &...
-                                    BC_us(:,2)+ position/v_f >= time; 
-                activeCharacterDomain = notNaN & inCharacterDomain;
-                
-                inFanDomain = BC_us(:,2)+ position/v_f < time;
-                activeFanDomain = notNaN & inFanDomain;
+                    inCharacterDomain = BC_us(:,1)+ position/v_f <= time &...
+                                        BC_us(:,2)+ position/v_f >= time; 
+                    activeCharacterDomain = notNaN & inCharacterDomain;
 
-                % solution in characteristic domain
-                tmp_M = min( BC_cum_us_M(activeCharacterDomain,1) +...
-                    BC_us(activeCharacterDomain,3).*(time - position/v_f - ...
-                    BC_us(activeCharacterDomain,1)) );
-                M(i) = self.minNonEmpty(M(i), tmp_M);
-                % solution in fan domain
-                tmp_M = min( BC_cum_us_M(activeFanDomain,1) +...
-                    BC_us_num_veh(activeFanDomain,1) + ...
-                    k_c*v_f.*(time - position/v_f - ...
-                    BC_us(activeFanDomain,2)) );
-                M(i) = self.minNonEmpty(M(i), tmp_M);
+                    inFanDomain = BC_us(:,2)+ position/v_f < time;
+                    activeFanDomain = notNaN & inFanDomain;
 
-                %DOWNSTREAM==================================================
-                % now check the upstream conditions
-                notNaN = ~isnan(BC_ds(:,3));
+                    % solution in characteristic domain
+                    tmp_M = min( BC_cum_us_M(activeCharacterDomain,1) +...
+                        BC_us(activeCharacterDomain,3).*(time - position/v_f - ...
+                        BC_us(activeCharacterDomain,1)) );
+                    M(i) = self.minNonEmpty(M(i), tmp_M);
+                    % solution in fan domain
+                    tmp_M = min( BC_cum_us_M(activeFanDomain,1) +...
+                        BC_us_num_veh(activeFanDomain,1) + ...
+                        k_c*v_f.*(time - position/v_f - ...
+                        BC_us(activeFanDomain,2)) );
+                    M(i) = self.minNonEmpty(M(i), tmp_M);
+                end 
                 
-                inCharacterDomain = BC_ds(:,1) + (position - len_link)/w <= time &...
-                                    BC_ds(:,2)+ (position - len_link)/w >= time;
-                activeCharacterDomain = notNaN & inCharacterDomain;
-                
-                inFanDomain = BC_ds(:,2)+ (position - len_link)/w < time;
-                activeFanDomain = notNaN & inFanDomain;
-                
-                % solution in characteristic domain
-                tmp_M = min( BC_cum_ds_M(activeCharacterDomain,1) +...
-                    BC_ds(activeCharacterDomain,3).*(time -...
-                    (position - len_link)/w - ...
-                    BC_ds(activeCharacterDomain,1))...
-                    - k_m*(position - len_link));
-                M(i) = self.minNonEmpty(M(i), tmp_M);
-                % solution in fan domain
-                tmp_M = min( BC_cum_ds_M(activeFanDomain,1) +...
-                    BC_ds_num_veh(activeFanDomain,1) + ...
-                    k_c*v_f.*(time - (position-len_link)/v_f - ...
-                    BC_ds(activeFanDomain,2)) );
-                
-                M(i) = self.minNonEmpty(M(i), tmp_M);
+                if num_ds_pre_steps ~=0
+                    %DOWNSTREAM==================================================
+                    % now check the upstream conditions
+                    notNaN = ~isnan(BC_ds(:,3));
 
+                    inCharacterDomain = BC_ds(:,1) + (position - len_link)/w <= time &...
+                                        BC_ds(:,2)+ (position - len_link)/w >= time;
+                    activeCharacterDomain = notNaN & inCharacterDomain;
+
+                    inFanDomain = BC_ds(:,2)+ (position - len_link)/w < time;
+                    activeFanDomain = notNaN & inFanDomain;
+
+                    % solution in characteristic domain
+                    tmp_M = min( BC_cum_ds_M(activeCharacterDomain,1) +...
+                        BC_ds(activeCharacterDomain,3).*(time -...
+                        (position - len_link)/w - ...
+                        BC_ds(activeCharacterDomain,1))...
+                        - k_m*(position - len_link));
+                    M(i) = self.minNonEmpty(M(i), tmp_M);
+                    % solution in fan domain
+                    tmp_M = min( BC_cum_ds_M(activeFanDomain,1) +...
+                        BC_ds_num_veh(activeFanDomain,1) + ...
+                        k_c*v_f.*(time - (position-len_link)/v_f - ...
+                        BC_ds(activeFanDomain,2)) );
+
+                    M(i) = self.minNonEmpty(M(i), tmp_M);
+                end
 
             end
         
@@ -3107,25 +3182,28 @@ classdef exactMergeSolver < handle
             % The function compares the min of two values which may be NaN. 
             % If one value is NaN, it will return the other value. If both NaN, return NaN.
             
-            if isempty(v1) && ~isempty(v2)
-                v = min(v2);
+            if isempty(v1)
+                
+                if isempty(v2)
+                    v = NaN;
+                else
+                    v = min(v2);
+                end
+            
+            else
+                
+                if isempty(v2)
+                    v = min(v1);
+                else
+                    v = min( min(v1), min(v2) );
+                end
+                
             end
             
-            if isempty(v2) && ~isempty(v1)
-                v = min(v1);
-            end
-            
-            if isempty(v1) && isempty(v2)
-                v = NaN;
-            end
-            
-            if ~isempty(v1) && ~isempty(v2)
-                v = min( min(v1),min(v2) );
-            end
+           
             
         end
 
-        
 
         
     end

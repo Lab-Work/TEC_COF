@@ -542,7 +542,7 @@ classdef discreteMergeSolver < handle
             
             clims = [0, k_m_tmp];
             scrsz = get(0,'ScreenSize');
-            figure('Position',[1 1 scrsz(3) scrsz(4)]);
+            figure('Position',[1 1 scrsz(3) scrsz(4)/2]);
             
             % imagesc(flipud(k_trans), clims, 'CDataMapping','scaled')
             imagesc(t_dens, x_dens, flipud(k_trans), clims);
