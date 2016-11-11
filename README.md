@@ -35,7 +35,7 @@ Run the script [merge_solver.m](https://github.com/Lab-Work/TEC_COF/blob/master/
 ### Optimal on-ramp metering control
 An optimal on-ramp metering controller example is provided in this toolbox. To run this example, you need to use [AIMSUN](https://www.aimsun.com/wp/) to simulate a microscopic traffic environment.
 - Install [AIMSUN](https://www.aimsun.com/wp/).
-- Download the microscopic model we built in AIMSUN and the python scripts we developed for AIMSUN to interact with MATLAB from [link](). We refer to the documentation in [link]() for the configuration of AIMSUN for running this example.
+- Download the microscopic model we built in AIMSUN and the python scripts we developed for AIMSUN to interact with MATLAB from [link](https://github.com/Lab-Work/TEC_COF/tree/master/examples/onramp_metering_control/AIMSUN_network). We refer to the documentation in [link]() for the configuration of AIMSUN for running this example.
 - Copy the [AIMSUN_MATLAB_COM foler](https://github.com/Lab-Work/TEC_COF/tree/master/AIMSUN_MATLAB_COM) to **E: Drive**. You may copy to other path, but you need to modify paths in the [runMPC_workzone.m script](https://github.com/Lab-Work/TEC_COF/blob/master/runMPC_workzone.m), the [com_config file.txt](https://github.com/Lab-Work/TEC_COF/blob/master/AIMSUN_MATLAB_COM/COM_CONFIG.txt), and the python scripts for AIMSUN.
 - Run the script [runMPC_workzone.m script](https://github.com/Lab-Work/TEC_COF/blob/master/runMPC_workzone.m) and start simulation in AIMSUN. 
 
